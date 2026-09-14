@@ -2,6 +2,10 @@
 
 基于 React 19、TypeScript、Vite 和 Tauri 2 的模块化单体桌面应用。
 
+## UI 约定
+
+新增或修改页面须遵循 [UI 设计规范](docs/ui-design.md)。风格参考 Codex 的桌面工作区，使用中性色、紧凑导航与统一控件；视觉变量位于 `src/styles/tokens.css`，公共类位于 `src/styles/ui.css`，原生跟随系统浅色/深色模式。模块只需复用公共类并编写自己的布局，无需增加 UI 库。
+
 ## 结构
 
 ```text

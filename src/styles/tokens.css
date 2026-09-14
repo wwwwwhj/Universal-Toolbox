@@ -1,0 +1,66 @@
+/* 项目 UI 语义变量；规范见 docs/ui-design.md。模块不得自行覆盖这些全局值。 */
+:root {
+  color-scheme: light;
+  --ui-bg: #ffffff;
+  --ui-sidebar: #f7f7f5;
+  --ui-surface: #f5f5f3;
+  --ui-hover: #ebebe8;
+  --ui-selected: #e5e5e2;
+  --ui-border: #e5e5e2;
+  --ui-control-border: #92928b;
+  --ui-text: #242422;
+  --ui-muted: #696963;
+  --ui-primary: #292927;
+  --ui-on-primary: #ffffff;
+  --ui-primary-hover: #444440;
+  --ui-focus: #5672a5;
+  --ui-danger: #ad3030;
+  --ui-danger-hover: #8d2424;
+  --ui-on-danger: #ffffff;
+  --ui-danger-bg: #fff3f2;
+  --ui-danger-border: #db9c97;
+  --ui-success: #2c6d47;
+  --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --ui-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ui-text-xs: 12px;
+  --ui-text-sm: 13px;
+  --ui-text-base: 14px;
+  --ui-text-lg: 16px;
+  --ui-text-title: 22px;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 24px;
+  --ui-space-6: 32px;
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 8px;
+  --ui-control-height: 36px;
+  --ui-sidebar-width: 220px;
+}
+
+/* 原生跟随系统深色模式，无需 JS 主题状态或持久化。 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --ui-bg: #20201e;
+    --ui-sidebar: #191918;
+    --ui-surface: #292927;
+    --ui-hover: #333330;
+    --ui-selected: #3c3c38;
+    --ui-border: #393936;
+    --ui-control-border: #6e6e66;
+    --ui-text: #eeeeeb;
+    --ui-muted: #aaa9a2;
+    --ui-primary: #e8e8e3;
+    --ui-on-primary: #20201e;
+    --ui-primary-hover: #ffffff;
+    --ui-focus: #a6bce9;
+    --ui-danger: #f0a09a;
+    --ui-danger-hover: #ffc0b9;
+    --ui-on-danger: #32100f;
+    --ui-danger-bg: #342221;
+    --ui-danger-border: #89534f;
+    --ui-success: #99c8a7;
+  }
+}

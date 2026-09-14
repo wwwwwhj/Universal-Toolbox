@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UI 规范示例 · 万能工具箱</title>
+  <link rel="stylesheet" href="../src/App.css" />
+  <link rel="stylesheet" href="../src/modules/ports/ports.css" />
+</head>
+<body>
+  <!-- 静态设计样板：按钮不调用系统能力，示例进程与路径均为虚构。 -->
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">万能工具箱</div>
+      <p class="sidebar-label">设计规范</p>
+      <nav aria-label="样式导航">
+        <a href="#controls" aria-current="page">控件与表格</a>
+        <a href="#feedback">反馈与确认</a>
+        <a href="../#/ports">返回端口管理</a>
+      </nav>
+    </aside>
+    <main class="main-content ports-page">
+      <h1>UI 规范示例</h1>
+      <p>静态样式样板，数据为示例。与应用共用 CSS，按钮不会执行系统操作。</p>
+      <section id="controls" aria-label="控件与表格">
+        <div class="ui-toolbar">
+          <div class="ui-field">
+            <label for="preview-port">端口号</label>
+            <input class="ui-input" id="preview-port" value="3000" />
+          </div>
+          <button class="ui-button ui-button--primary" type="button">查询 / 刷新</button>
+          <button class="ui-button" type="button" disabled>处理中…</button>
+        </div>
+        <details class="ui-help"><summary>地址说明 · IPv4 / IPv6</summary><p>0.0.0.0 为全部 IPv4 地址，[::] 为全部 IPv6 地址。</p></details>
+        <div class="ui-table-wrap" tabindex="0" role="region" aria-label="示例表格，可横向滚动">
+          <table class="ui-table">
+            <thead><tr><th>端口 / 协议</th><th>本地地址</th><th>状态</th><th>进程 / PID</th><th>操作</th></tr></thead>
+            <tbody><tr>
+              <td>3000 / TCP</td><td><div>[::]（IPv6）</div><div>0.0.0.0（IPv4）</div></td><td><div>LISTENING</div><div>LISTENING</div></td>
+              <td><strong>node</strong> / 12345<small>工作目录：D:\projects\example-toolbox\</small>
+                <details class="ports-details"><summary>进程详情</summary><dl>
+                  <dt>启动命令</dt><dd><code>node D:\projects\example-toolbox\node_modules\vite\bin\vite.js --port 3000</code></dd>
+                  <dt>工作目录（当前）</dt><dd>D:\projects\example-toolbox\</dd>
+                  <dt>关联服务</dt><dd>无关联服务</dd>
+                </dl></details>
+              </td><td><button class="ui-button" type="button">停止进程</button></td>
+            </tr></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="feedback" aria-label="反馈与确认">
+        <p class="ui-feedback">未查询：输入端口号，或留空查询全部。</p>
+        <p class="ui-feedback ui-feedback--success">成功：查询已完成。</p>
+        <p class="ui-feedback ui-feedback--error">失败：无法读取进程信息，请检查权限后重试。</p>
+        <div class="ui-confirm">
+          <h2>停止 node（PID 12345）？</h2>
+          <p>工作目录：D:\projects\example-toolbox\</p>
+          <p>这会结束整个进程，影响它的所有端口，未保存的数据可能丢失。</p>
+          <div class="ui-actions">
+            <button class="ui-button ui-button--danger" type="button">确认停止</button>
+            <button class="ui-button" type="button">取消</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

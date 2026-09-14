@@ -109,32 +109,39 @@ export default function PortsPage() {
     <section className="ports-page">
       <h1>端口管理</h1>
       <p>查询 Windows / macOS 本地 TCP/UDP 端口占用，停止占用端口的进程。结果受当前账户的系统权限限制。</p>
-      {!desktop && <p role="status">请在 Tauri 桌面应用中使用此功能，浏览器无法查询或停止本机进程。</p>}
-      <form onSubmit={(event) => { event.preventDefault(); void search(); }}>
+      {!desktop && <p className="ui-feedback" role="status">请在 Tauri 桌面应用中使用此功能，浏览器无法查询或停止本机进程。</p>}
+      <form className="ui-toolbar" onSubmit={(event) => { event.preventDefault(); void search(); }}>
+        <div className="ui-field">
         <label htmlFor="port-number">端口号</label>
-        <input id="port-number" type="text" inputMode="numeric" placeholder="例如 1420，留空查询全部"
+        <input className="ui-input" id="port-number" type="text" inputMode="numeric" placeholder="例如 1420，留空查询全部"
           value={port} onChange={(event) => setPort(event.target.value)} disabled={busy || !desktop} />
-        <button type="submit" disabled={busy || !desktop}>{busy ? "处理中…" : "查询 / 刷新"}</button>
+        </div>
+        <button className="ui-button ui-button--primary" type="submit" disabled={busy || !desktop}>{busy ? "处理中…" : "查询 / 刷新"}</button>
       </form>
-      {error && <p className="ports-error" role="alert">{error}</p>}
-      {message && <p role="status">{message}</p>}
+      {error && <p className="ui-feedback ui-feedback--error" role="alert">{error}</p>}
+      {message && <p className="ui-feedback ui-feedback--success" role="status">{message}</p>}
       {selected && (
-        <div ref={confirmation} tabIndex={-1} className="ports-confirm" role="group" aria-label="确认停止进程">
+        <div ref={confirmation} tabIndex={-1} className="ui-confirm" role="group" aria-label="确认停止进程">
           <h2>停止 {selected.name}（PID {selected.pid}）？</h2>
           <p>端口：{selected.port} / {selected.protocol}；路径：{selected.path || "无法读取"}</p>
           <p>工作目录：{selected.workingDirectory || "无法读取"}</p>
           <p>{selected.platform === "macos" ? "这会向整个进程发送终止信号，不自动强杀。" : "这会强制结束整个进程。"}影响它的所有端口，未保存的数据可能丢失。若有守护程序，进程可能自动重启。</p>
-          <button type="button" className="ports-danger" onClick={() => void stop()} disabled={busy}>确认停止</button>
-          <button type="button" onClick={() => setSelected(null)} disabled={busy}>取消</button>
+          <div className="ui-actions">
+            <button type="button" className="ui-button ui-button--danger" onClick={() => void stop()} disabled={busy}>确认停止</button>
+            <button className="ui-button" type="button" onClick={() => setSelected(null)} disabled={busy}>取消</button>
+          </div>
         </div>
       )}
       {hasQueried && (
         <>
           <p role="status">{queriedPort === null ? "全部端口" : `端口 ${queriedPort}`}：{groupedRows.length} 组占用（按进程、端口和协议合并）</p>
-          <p>IPv4 地址如 127.0.0.1，IPv6 地址如 [::1]，这两个都是本机回环地址。监听时，0.0.0.0 表示全部 IPv4 地址，[::] 表示全部 IPv6 地址。</p>
+          <details className="ui-help">
+            <summary>地址说明 · IPv4 / IPv6</summary>
+            <p>IPv4 地址如 127.0.0.1，IPv6 地址如 [::1]，这两个都是本机回环地址。监听时，0.0.0.0 表示全部 IPv4 地址，[::] 表示全部 IPv6 地址。</p>
+          </details>
           {rows.length === 0 ? <p>未发现有进程占用。此结果不包含无所属进程的 TIME_WAIT 记录或系统保留端口。</p> : (
-            <div className="ports-table-wrap">
-              <table>
+            <div className="ui-table-wrap" tabIndex={0} role="region" aria-label="端口占用结果，可横向滚动">
+              <table className="ui-table">
                 <thead><tr><th>端口 / 协议</th><th>本地地址</th><th>状态</th><th>进程 / PID</th><th>操作</th></tr></thead>
                 <tbody>{groupedRows.map((row) => (
                   <tr key={`${row.protocol}-${row.port}-${row.pid}`}>
@@ -160,11 +167,11 @@ export default function PortsPage() {
                             <ul>{row.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
                           )}</dd>
                         </dl>
-                        {row.detailsWarnings.map((warning) => <p className="ports-error" key={warning}>{warning}</p>)}
+                        {row.detailsWarnings.map((warning) => <p className="ui-feedback ui-feedback--error" key={warning}>{warning}</p>)}
                       </details>
                     </td>
                     <td>
-                      <button type="button" onClick={() => { setSelected(row); setError(""); setMessage(""); }}
+                      <button className="ui-button" type="button" onClick={() => { setSelected(row); setError(""); setMessage(""); }}
                         disabled={busy || !!row.blockedReason || !row.startedAt}
                         aria-label={`停止 ${row.name}，PID ${row.pid}，端口 ${row.port}`}>停止进程</button>
                       {row.blockedReason && <small>{row.blockedReason}</small>}
