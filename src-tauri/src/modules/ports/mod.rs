@@ -10,8 +10,24 @@ pub struct PortOwner {
     state: String,
     name: String,
     path: Option<String>,
+    working_directory: Option<String>,
+    working_directory_error: Option<String>,
     started_at: Option<String>,
     blocked_reason: Option<String>,
+    started_at_display: Option<String>,
+    command_line: Option<String>,
+    parent_pid: Option<u32>,
+    parent_name: Option<String>,
+    services: Option<Vec<ProcessService>>,
+    details_warnings: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProcessService {
+    name: String,
+    display_name: String,
+    state: String,
 }
 
 #[cfg(windows)]
@@ -23,7 +39,11 @@ fn run_script(arguments: &str) -> Result<String, String> {
     // 使用系统自带 PowerShell，无需用户额外安装；隐藏辅助控制台窗口。
     let output = Command::new(executable)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
-        .arg(format!("{arguments}\n{}", include_str!("ports.ps1")))
+        .arg(format!(
+            "{arguments}\n$workingDirectorySource = @'\n{}\n'@\n{}",
+            include_str!("working-directory.cs"),
+            include_str!("ports.ps1")
+        ))
         .creation_flags(0x08000000)
         .output()
         .map_err(|error| format!("无法执行端口操作：{error}"))?;
@@ -116,6 +136,7 @@ mod tests {
                     "-Command",
                     r#"
                 $ErrorActionPreference = 'Stop'
+                [Environment]::CurrentDirectory = [IO.Path]::GetTempPath()
                 $tcp = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
                 $tcp.Start()
                 $port = $tcp.LocalEndpoint.Port
@@ -145,6 +166,43 @@ mod tests {
         assert!(owned.iter().any(|row| row.protocol == "UDP"));
         let owner = owned[0];
         assert!(owner.blocked_reason.is_none(), "{:?}", owner);
+        assert!(
+            owner.working_directory_error.is_none(),
+            "{:?}",
+            owner.working_directory_error
+        );
+        assert_eq!(
+            std::fs::canonicalize(
+                owner
+                    .working_directory
+                    .as_ref()
+                    .expect("应读取真实工作目录")
+            )
+            .unwrap(),
+            std::fs::canonicalize(std::env::temp_dir()).unwrap()
+        );
+        assert!(owner
+            .started_at_display
+            .as_deref()
+            .is_some_and(|value| value.contains('T')));
+        // 受限环境可能禁止 CIM，必须明确降级；不能把查询失败伪装成空详情。
+        if owner.details_warnings.is_empty() {
+            assert!(owner
+                .command_line
+                .as_deref()
+                .is_some_and(|value| value.contains("TcpListener")));
+            assert_eq!(owner.parent_pid, Some(std::process::id()));
+            assert!(owner.parent_name.is_some());
+            assert!(owner
+                .services
+                .as_ref()
+                .is_some_and(|services| services.is_empty()));
+        } else {
+            assert!(owner
+                .details_warnings
+                .iter()
+                .all(|warning| !warning.is_empty()));
+        }
         assert!(list(Some(0)).is_err());
         assert!(stop(port, 4, "1").is_err());
         assert!(stop(port, std::process::id(), "1").is_err());

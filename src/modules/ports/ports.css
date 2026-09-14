@@ -14,3 +14,11 @@
 .ports-page th, .ports-page td { padding: 12px; border-bottom: 1px solid #dfe5ef; text-align: left; vertical-align: top; }
 .ports-page th { white-space: nowrap; }
 .ports-page small { display: block; max-width: 300px; margin-top: 6px; overflow-wrap: anywhere; color: #637087; }
+.ports-details { margin-top: 10px; }
+.ports-details summary { cursor: pointer; color: #315bc7; }
+.ports-details summary:focus-visible { outline: 3px solid #557feb; outline-offset: 2px; }
+.ports-details dl { min-width: 220px; max-width: 520px; }
+.ports-details dt { margin-top: 12px; font-weight: 600; }
+.ports-details dd { margin: 4px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ports-details code { font-size: 13px; }
+.ports-details ul { margin: 0; padding-left: 18px; }

@@ -21,6 +21,21 @@ try {
   for (const hash of ["", "#", "#/"]) assert.equal(resolveModule(hash), modules[0]);
   for (const hash of ["#/missing", "#/git/extra", "#/%broken"]) assert.equal(resolveModule(hash), undefined);
   assert.equal((shell.match(/aria-current="page"/g) || []).length, 1);
+  const { groupPortOwners } = await server.ssrLoadModule("/src/modules/ports/PortsPage.tsx");
+  const owner = { pid: 20944, port: 3000, protocol: "TCP", address: "[::]", state: "LISTENING", startedAt: "123" };
+  const input = [owner, { ...owner, address: "0.0.0.0" }, owner,
+    { ...owner, address: "127.0.0.1", state: "ESTABLISHED" },
+    { ...owner, pid: 20945 }, { ...owner, port: 3001 }, { ...owner, protocol: "UDP" }];
+  const grouped = groupPortOwners(input);
+  assert.equal(grouped.length, 4);
+  assert.deepEqual(grouped[0].endpoints, [
+    { address: "[::]", state: "LISTENING" },
+    { address: "0.0.0.0", state: "LISTENING" },
+    { address: "127.0.0.1", state: "ESTABLISHED" },
+  ]);
+  assert.equal(grouped[0].startedAt, "123");
+  assert.equal(owner.endpoints, undefined);
+  assert.deepEqual(groupPortOwners([]), []);
   console.log("Architecture check passed: registry, navigation, pages, default and unknown routes.");
 } finally {
   await server.close();
