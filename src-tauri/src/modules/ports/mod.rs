@@ -1,8 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[cfg(any(target_os = "macos", test))]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos::{list, stop};
+
+fn windows_platform() -> String {
+    "windows".into()
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortOwner {
+    #[serde(default = "windows_platform")]
+    platform: String,
     protocol: String,
     address: String,
     port: u16,
@@ -22,7 +33,7 @@ pub struct PortOwner {
     details_warnings: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessService {
     name: String,
@@ -56,11 +67,17 @@ fn run_script(arguments: &str) -> Result<String, String> {
     String::from_utf8(output.stdout).map_err(|error| format!("端口结果编码无效：{error}"))
 }
 
-#[cfg(not(windows))]
-fn run_script(_: &str) -> Result<String, String> {
-    Err("端口管理目前仅支持 Windows。".into())
+#[cfg(not(any(windows, target_os = "macos")))]
+fn list(_: Option<u16>) -> Result<Vec<PortOwner>, String> {
+    Err("端口管理目前仅支持 Windows 和 macOS。".into())
 }
 
+#[cfg(not(any(windows, target_os = "macos")))]
+fn stop(_: u16, _: u32, _: &str) -> Result<(), String> {
+    Err("端口管理目前仅支持 Windows 和 macOS。".into())
+}
+
+#[cfg(windows)]
 fn list(port: Option<u16>) -> Result<Vec<PortOwner>, String> {
     if port == Some(0) {
         return Err("端口必须在 1–65535 之间。".into());
@@ -73,9 +90,9 @@ fn list(port: Option<u16>) -> Result<Vec<PortOwner>, String> {
     serde_json::from_str(output.trim()).map_err(|error| format!("无法解析端口结果：{error}"))
 }
 
-fn stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
+fn validate_stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
     // IPC 参数同样校验；仅把数值和数字串放入固定脚本，禁止传入任意命令。
-    if port == 0 || pid <= 4 || pid == std::process::id() {
+    if port == 0 || pid <= 4 || pid > i32::MAX as u32 || pid == std::process::id() {
         return Err("端口或进程无效，不允许停止系统进程或工具箱自身。".into());
     }
     if started_at.is_empty()
@@ -84,6 +101,12 @@ fn stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
     {
         return Err("进程身份信息无效，请重新查询。".into());
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
+    validate_stop(port, pid, started_at)?;
     run_script(&format!(
         "$action = 'stop'; $filterPort = {port}; $appPid = {}; $targetPid = {pid}; $expectedStart = '{started_at}';",
         std::process::id()

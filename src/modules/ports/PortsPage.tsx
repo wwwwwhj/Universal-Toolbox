@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import "./ports.css";
 
 interface PortOwner {
+  platform: "windows" | "macos";
   protocol: string;
   address: string;
   port: number;
@@ -107,7 +108,7 @@ export default function PortsPage() {
   return (
     <section className="ports-page">
       <h1>端口管理</h1>
-      <p>查询 Windows 本地 TCP/UDP 端口占用，停止占用端口的进程。</p>
+      <p>查询 Windows / macOS 本地 TCP/UDP 端口占用，停止占用端口的进程。结果受当前账户的系统权限限制。</p>
       {!desktop && <p role="status">请在 Tauri 桌面应用中使用此功能，浏览器无法查询或停止本机进程。</p>}
       <form onSubmit={(event) => { event.preventDefault(); void search(); }}>
         <label htmlFor="port-number">端口号</label>
@@ -122,7 +123,7 @@ export default function PortsPage() {
           <h2>停止 {selected.name}（PID {selected.pid}）？</h2>
           <p>端口：{selected.port} / {selected.protocol}；路径：{selected.path || "无法读取"}</p>
           <p>工作目录：{selected.workingDirectory || "无法读取"}</p>
-          <p>这会强制结束整个进程，影响它的所有端口，未保存的数据可能丢失。若有守护程序，进程可能自动重启。</p>
+          <p>{selected.platform === "macos" ? "这会向整个进程发送终止信号，不自动强杀。" : "这会强制结束整个进程。"}影响它的所有端口，未保存的数据可能丢失。若有守护程序，进程可能自动重启。</p>
           <button type="button" className="ports-danger" onClick={() => void stop()} disabled={busy}>确认停止</button>
           <button type="button" onClick={() => setSelected(null)} disabled={busy}>取消</button>
         </div>
@@ -155,7 +156,7 @@ export default function PortsPage() {
                           <dt>启动时间</dt><dd>{row.startedAtDisplay ? new Date(row.startedAtDisplay).toLocaleString() : "无法读取"}</dd>
                           <dt>父进程</dt><dd>{row.parentPid === null ? "无法读取" : `${row.parentName || "名称不可用（可能已退出）"} / PID ${row.parentPid}`}</dd>
                           <dt>关联 Windows 服务</dt>
-                          <dd>{row.services === null ? "无法读取（权限不足或进程已变化）" : row.services.length === 0 ? "无关联服务" : (
+                          <dd>{row.platform === "macos" ? "不适用（macOS）" : row.services === null ? "无法读取（权限不足或进程已变化）" : row.services.length === 0 ? "无关联服务" : (
                             <ul>{row.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
                           )}</dd>
                         </dl>
