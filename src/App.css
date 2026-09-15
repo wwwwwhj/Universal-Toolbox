@@ -23,6 +23,8 @@ a { color: inherit; text-underline-offset: 3px; }
 .sidebar {
   width: var(--ui-sidebar-width);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   padding: var(--ui-space-5) var(--ui-space-3);
   background: var(--ui-sidebar);
   border-right: 1px solid var(--ui-border);
@@ -31,9 +33,12 @@ a { color: inherit; text-underline-offset: 3px; }
 .brand { padding: 0 var(--ui-space-2); font-size: var(--ui-text-lg); font-weight: 600; }
 .sidebar-label { margin: var(--ui-space-6) var(--ui-space-2) var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-xs); }
 .sidebar nav { display: grid; gap: var(--ui-space-1); }
-.sidebar nav a { min-height: var(--ui-control-height); padding: var(--ui-space-2) var(--ui-space-3); border-radius: var(--ui-radius-sm); text-decoration: none; font-size: var(--ui-text-sm); }
+.sidebar nav a { display: flex; align-items: center; gap: var(--ui-space-2); min-height: var(--ui-control-height); padding: var(--ui-space-2) var(--ui-space-3); border-radius: var(--ui-radius-sm); text-decoration: none; font-size: var(--ui-text-sm); }
+.sidebar nav a svg { flex-shrink: 0; }
 .sidebar nav a:hover { background: var(--ui-hover); }
 .sidebar nav a[aria-current="page"] { background: var(--ui-selected); font-weight: 600; }
+.sidebar-footer { margin-top: auto; padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
+.settings-page .ui-input { width: 240px; }
 .main-content { flex: 1; min-width: 0; padding: var(--ui-space-6); overflow: auto; overflow-wrap: anywhere; }
 .main-content h1 { margin: 0 0 var(--ui-space-2); font-size: var(--ui-text-title); font-weight: 600; line-height: 1.4; }
 .main-content h2 { font-size: var(--ui-text-lg); font-weight: 600; }

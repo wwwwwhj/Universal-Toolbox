@@ -1,9 +1,20 @@
+import { useEffect, useState } from "react";
+import { Settings } from "lucide-react";
 import { modules } from "./modules";
-import { useActiveModule } from "./router";
+import { resolveModule, useHash } from "./router";
+import SettingsPage from "./SettingsPage";
+import { applyThemePreference, readThemePreference, type ThemePreference } from "./theme";
+
+const settingsRoute = "/settings";
 
 export default function AppShell() {
-  const activeModule = useActiveModule();
+  const hash = useHash();
+  const isSettings = hash === `#${settingsRoute}`;
+  const activeModule = isSettings ? undefined : resolveModule(hash);
   const Page = activeModule?.component;
+  const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
+
+  useEffect(() => applyThemePreference(theme), [theme]);
 
   return (
     <div className="app-shell">
@@ -28,13 +39,22 @@ export default function AppShell() {
               href={`#${module.route}`}
               aria-current={activeModule?.id === module.id ? "page" : undefined}
             >
+              <module.icon size={16} aria-hidden="true" />
               {module.name}
             </a>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          <nav aria-label="设置">
+            <a href={`#${settingsRoute}`} aria-current={isSettings ? "page" : undefined}>
+              <Settings size={16} aria-hidden="true" />
+              设置
+            </a>
+          </nav>
+        </div>
       </aside>
       <main id="main-content" className="main-content" tabIndex={-1}>
-        {Page ? <Page key={activeModule.id} /> : (
+        {isSettings ? <SettingsPage theme={theme} onThemeChange={setTheme} /> : Page ? <Page key={activeModule.id} /> : (
           <section>
             <h1>工具不存在</h1>
             <p>当前地址没有对应的工具，请从左侧导航选择。</p>

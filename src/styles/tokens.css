@@ -39,9 +39,9 @@
   --ui-sidebar-width: 220px;
 }
 
-/* 原生跟随系统深色模式，无需 JS 主题状态或持久化。 */
+/* 深色变量同时由系统媒体查询和手动 data-theme 提供，两处保持一致。 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --ui-bg: #20201e;
     --ui-sidebar: #191918;
@@ -63,4 +63,26 @@
     --ui-danger-border: #89534f;
     --ui-success: #99c8a7;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ui-bg: #20201e;
+  --ui-sidebar: #191918;
+  --ui-surface: #292927;
+  --ui-hover: #333330;
+  --ui-selected: #3c3c38;
+  --ui-border: #393936;
+  --ui-control-border: #5d5d56;
+  --ui-text: #eeeeeb;
+  --ui-muted: #aaa9a2;
+  --ui-primary: #e8e8e3;
+  --ui-on-primary: #20201e;
+  --ui-primary-hover: #ffffff;
+  --ui-focus: #a6bce9;
+  --ui-danger: #f0a09a;
+  --ui-danger-hover: #ffc0b9;
+  --ui-on-danger: #32100f;
+  --ui-danger-bg: #342221;
+  --ui-danger-border: #89534f;
+  --ui-success: #99c8a7;
 }

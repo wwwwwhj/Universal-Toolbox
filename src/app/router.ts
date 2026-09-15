@@ -14,8 +14,7 @@ export function resolveModule(hash: string) {
     : modules.find((module) => module.route === route);
 }
 
-export function useActiveModule() {
+export function useHash() {
   // Hash 不依赖服务器路径回退，开发与 Tauri 打包后的入口都能直接刷新。
-  const hash = useSyncExternalStore(subscribe, () => window.location.hash, () => "");
-  return resolveModule(hash);
+  return useSyncExternalStore(subscribe, () => window.location.hash, () => "");
 }
