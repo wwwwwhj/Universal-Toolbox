@@ -7,7 +7,7 @@
   --ui-hover: #ebebe8;
   --ui-selected: #e5e5e2;
   --ui-border: #e5e5e2;
-  --ui-control-border: #92928b;
+  --ui-control-border: #a6a69e;
   --ui-text: #242422;
   --ui-muted: #696963;
   --ui-primary: #292927;
@@ -49,7 +49,7 @@
     --ui-hover: #333330;
     --ui-selected: #3c3c38;
     --ui-border: #393936;
-    --ui-control-border: #6e6e66;
+    --ui-control-border: #5d5d56;
     --ui-text: #eeeeeb;
     --ui-muted: #aaa9a2;
     --ui-primary: #e8e8e3;

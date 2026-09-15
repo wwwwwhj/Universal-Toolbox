@@ -12,6 +12,10 @@
 
 .ui-input { min-width: 0; max-width: 100%; }
 .ui-input::placeholder { color: var(--ui-muted); opacity: 1; }
+.ui-input:hover:not(:disabled), .ui-input:focus,
+.ui-button:not(.ui-button--primary):not(.ui-button--danger):hover:not(:disabled) {
+  border-color: var(--ui-muted);
+}
 .ui-button { cursor: pointer; font-weight: 500; white-space: nowrap; }
 .ui-button:hover:not(:disabled) { background: var(--ui-hover); }
 .ui-button--primary { background: var(--ui-primary); border-color: var(--ui-primary); color: var(--ui-on-primary); }
