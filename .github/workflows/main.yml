@@ -5,57 +5,114 @@ on:
     tags:
       - 'v*'
 
-# This is the example from the readme.
-# On each push to the `release` branch it will create or update a GitHub release, build your app, and upload the artifacts to the release.
+  # 也允许在 GitHub Actions 页面手动执行
+  workflow_dispatch:
 
 jobs:
   publish-tauri:
     permissions:
       contents: write
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
+          # macOS Apple Silicon
+          - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs.
+
+          # macOS Intel
+          - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04' # for Tauri v1 you could replace this with ubuntu-20.04.
+
+          # Linux
+          - platform: 'ubuntu-22.04'
             args: ''
+
+          # Windows
           - platform: 'windows-latest'
             args: ''
 
     runs-on: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v4
 
+    steps:
+      # 拉取代码
+      - name: checkout repository
+        uses: actions/checkout@v4
+
+      # 安装 pnpm
+      # 必须放在 setup-node 的 cache: pnpm 之前
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      # 安装 Node
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 22
+          cache: 'pnpm'
 
+      # 安装 Rust
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # Rust 编译缓存
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # Linux 构建依赖
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
 
+      # 前端依赖
       - name: install frontend dependencies
-        run: yarn install # change this to npm, pnpm or bun depending on which one you use.
+        run: pnpm install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v1
+      # 第一次建议保留，确认 CI 环境
+      - name: check versions
+        run: |
+          node --version
+          pnpm --version
+          rustc --version
+          cargo --version
+
+      # 构建 Tauri
+      - name: build tauri
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # macOS 暂时没有正式 Apple Developer 签名时使用
+          APPLE_SIGNING_IDENTITY: '-'
+
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          # 非常关键：
+          # 不让 tauri-action 自动判断 yarn/npm/pnpm
+          tauriScript: pnpm tauri
+
+          tagName: app-v__VERSION__
+          releaseName: 'Git Workbench v__VERSION__'
+
+          releaseBody: |
+            Git Workbench v__VERSION__
+
+            Builds:
+            - Windows
+            - macOS Apple Silicon
+            - macOS Intel
+            - Linux
+
           releaseDraft: true
           prerelease: false
+
           args: ${{ matrix.args }}
