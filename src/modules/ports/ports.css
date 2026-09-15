@@ -1,11 +1,21 @@
 /* 模块 CSS 只负责数据布局，基础控件和视觉值来自全局 UI 规范。 */
 .ports-page .ui-input { width: 260px; }
-.ports-page .ui-table { min-width: 760px; }
-.ports-page .ui-table td:nth-child(-n + 3) { white-space: nowrap; font-family: var(--ui-mono); }
+.ports-page .ports-name-input { width: 180px; }
+.ports-page .ui-table { min-width: 960px; }
+.ports-page .ui-table td:nth-child(-n + 4) { white-space: nowrap; font-family: var(--ui-mono); }
 .ports-page small { display: block; max-width: 300px; margin-top: var(--ui-space-2); overflow-wrap: anywhere; color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.ports-viewbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-3) var(--ui-space-5); margin: var(--ui-space-4) 0 var(--ui-space-3); }
+.ports-viewbar p { margin: 0; }
+.ports-autorefresh { display: inline-flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-sm); white-space: nowrap; }
+.ports-sort { display: inline-flex; align-items: center; gap: var(--ui-space-1); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.ports-sort:hover { color: var(--ui-text); }
+.ports-sort:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .ports-dialog dl { margin: var(--ui-space-3) 0; }
 .ports-dialog dt { margin-top: var(--ui-space-3); font-weight: 600; }
 .ports-dialog dd { margin: var(--ui-space-1) 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ports-dialog code { font-size: var(--ui-text-xs); }
 .ports-dialog ul { margin: 0; padding-left: var(--ui-space-4); }
 .ports-dialog-actions { margin-top: var(--ui-space-4); justify-content: flex-end; }
+.ports-copy { margin-left: var(--ui-space-2); padding: 0 var(--ui-space-1); border: 0; background: none; color: var(--ui-muted); font-size: var(--ui-text-xs); font-weight: 400; text-decoration: underline; cursor: pointer; }
+.ports-copy:hover { color: var(--ui-text); }
+.ports-copy:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }

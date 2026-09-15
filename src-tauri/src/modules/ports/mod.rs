@@ -16,6 +16,7 @@ pub struct PortOwner {
     platform: String,
     protocol: String,
     address: String,
+    remote_address: Option<String>,
     port: u16,
     pid: u32,
     state: String,

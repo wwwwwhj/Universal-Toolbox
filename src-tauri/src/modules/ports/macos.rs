@@ -67,12 +67,18 @@ fn parse_files(output: &str) -> Result<Vec<FileRecord>, String> {
     Ok(result)
 }
 
-fn local_endpoint(record: &FileRecord) -> Option<(String, u16)> {
+fn local_endpoint(record: &FileRecord) -> Option<(String, u16, Option<String>)> {
     if !matches!(record.protocol.as_str(), "TCP" | "UDP") {
         return None;
     }
     // -i:端口也会匹配远端端口，因此在解析后只按本地端口过滤。
-    let local = record.address.split("->").next()?;
+    let mut parts = record.address.split("->");
+    let local = parts.next()?;
+    // 监听或未连接的 UDP 没有对端，lsof 写作 * 或不输出 -> 部分。
+    let remote = parts
+        .next()
+        .filter(|remote| !remote.is_empty() && !remote.starts_with('*'))
+        .map(str::to_string);
     let (address, port) = local.rsplit_once(':')?;
     let port = port.parse::<u16>().ok().filter(|port| *port > 0)?;
     let address = if address == "*" {
@@ -85,7 +91,26 @@ fn local_endpoint(record: &FileRecord) -> Option<(String, u16)> {
     } else {
         address.to_string()
     };
-    Some((address, port))
+    Some((address, port, remote))
+}
+
+// Unix 时间戳转 UTC 显示文本，替代每个进程一次 /bin/date 调用。
+fn format_utc(seconds: u64) -> String {
+    let days = (seconds / 86400) as i64;
+    let secs = seconds % 86400;
+    let (hour, minute, second) = (secs / 3600, secs % 3600 / 60, secs % 60);
+    // Howard Hinnant 的 civil_from_days，纪元日 1970-01-01 对应 z = 719468。
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
 #[cfg(target_os = "macos")]
@@ -189,13 +214,71 @@ mod native {
         )?)
     }
 
-    fn details(pid: u32, name: &str) -> PortOwner {
+    // 命令行和工作目录按 PID 集合各批量取一次，代替逐进程起 ps / lsof 子进程。
+    #[derive(Default)]
+    struct ProcessContext {
+        commands: HashMap<u32, String>,
+        cwds: HashMap<u32, String>,
+        cwd_error: Option<String>,
+        warnings: Vec<String>,
+    }
+
+    fn load_context(pids: &[u32]) -> ProcessContext {
+        let mut ctx = ProcessContext::default();
+        if pids.is_empty() {
+            return ctx;
+        }
+        let pid_list = pids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        match output(
+            "/bin/ps",
+            &["-ww", "-p", &pid_list, "-o", "pid=,command="],
+            true,
+        ) {
+            Ok(text) => {
+                for line in text.lines() {
+                    let line = line.trim_start();
+                    let Some((pid, command)) = line.split_once(char::is_whitespace) else {
+                        continue;
+                    };
+                    if let Ok(pid) = pid.parse() {
+                        ctx.commands.insert(pid, command.trim().into());
+                    }
+                }
+            }
+            Err(error) => ctx.warnings.push(error),
+        }
+        match output(
+            "/usr/sbin/lsof",
+            &["-a", "-p", &pid_list, "-d", "cwd", "-F0pfn"],
+            true,
+        ) {
+            Ok(text) => match parse_files(&text) {
+                Ok(files) => {
+                    for file in files {
+                        if file.fd == "cwd" && file.address.starts_with('/') {
+                            ctx.cwds.insert(file.pid, file.address);
+                        }
+                    }
+                }
+                Err(error) => ctx.cwd_error = Some(error),
+            },
+            Err(error) => ctx.cwd_error = Some(error),
+        }
+        ctx
+    }
+
+    fn details(pid: u32, name: &str, ctx: &ProcessContext) -> PortOwner {
         let mut row = PortOwner {
             platform: "macos".into(),
             pid,
             name: name.into(),
             protocol: String::new(),
             address: String::new(),
+            remote_address: None,
             port: 0,
             state: String::new(),
             path: None,
@@ -242,23 +325,9 @@ mod native {
                 std::io::Error::last_os_error()
             ));
         }
-        let pid_text = pid.to_string();
-        match output(
-            "/bin/ps",
-            &["-ww", "-p", &pid_text, "-o", "command="],
-            false,
-        ) {
-            Ok(command) => row.command_line = Some(command.trim().into()),
-            Err(error) => row.details_warnings.push(error),
-        }
-        match output(
-            "/bin/date",
-            &["-u", "-r", &info.seconds.to_string(), "+%Y-%m-%dT%H:%M:%SZ"],
-            false,
-        ) {
-            Ok(date) => row.started_at_display = Some(date.trim().into()),
-            Err(error) => row.details_warnings.push(error),
-        }
+        row.details_warnings.extend(ctx.warnings.iter().cloned());
+        row.command_line = ctx.commands.get(&pid).cloned();
+        row.started_at_display = Some(format_utc(info.seconds));
         row.parent_pid = Some(info.parent);
         // 父进程退出后 PID 可能复用，不展示比子进程更晚启动的“父进程”。
         if let Ok(parent) = process_info(info.parent) {
@@ -272,22 +341,15 @@ mod native {
                     Some(String::from_utf8_lossy(bytes).trim_end_matches('\0').into());
             }
         }
-        let cwd = output(
-            "/usr/sbin/lsof",
-            &["-a", "-p", &pid_text, "-d", "cwd", "-F0pfn"],
-            true,
-        )
-        .and_then(|text| parse_files(&text))
-        .and_then(|files| {
-            files
-                .into_iter()
-                .find(|file| file.pid == pid && file.fd == "cwd" && file.address.starts_with('/'))
-                .map(|file| file.address)
-                .ok_or_else(|| "工作目录不可用（权限不足或进程已退出）。".into())
-        });
-        match cwd {
-            Ok(path) => row.working_directory = Some(path),
-            Err(error) => row.working_directory_error = Some(error),
+        match ctx.cwds.get(&pid) {
+            Some(path) => row.working_directory = Some(path.clone()),
+            None => {
+                row.working_directory_error = Some(
+                    ctx.cwd_error
+                        .clone()
+                        .unwrap_or_else(|| "工作目录不可用（权限不足或进程已退出）。".into()),
+                )
+            }
         }
         // 查询各项详情期间也可能发生进程替换，不返回混合身份的数据。
         if process_info(pid).map(|current| identity(&current)).ok() != row.started_at {
@@ -309,18 +371,30 @@ mod native {
         if port == Some(0) {
             return Err("端口必须在 1–65535 之间。".into());
         }
+        let files = sockets(port)?;
+        let mut pids = Vec::new();
+        for file in &files {
+            if let Some((_, local_port, _)) = local_endpoint(file) {
+                if port.is_some_and(|port| port != local_port) || pids.contains(&file.pid) {
+                    continue;
+                }
+                pids.push(file.pid);
+            }
+        }
+        let ctx = load_context(&pids);
         let mut processes = HashMap::new();
         let mut rows = Vec::new();
-        for file in sockets(port)? {
-            if let Some((address, local_port)) = local_endpoint(&file) {
+        for file in files {
+            if let Some((address, local_port, remote)) = local_endpoint(&file) {
                 if port.is_some_and(|port| port != local_port) {
                     continue;
                 }
                 let mut row = processes
                     .entry(file.pid)
-                    .or_insert_with(|| details(file.pid, &file.name))
+                    .or_insert_with(|| details(file.pid, &file.name, &ctx))
                     .clone();
                 row.address = address;
+                row.remote_address = remote;
                 row.port = local_port;
                 row.protocol = file.protocol;
                 row.state = match file.state.as_str() {
@@ -333,16 +407,18 @@ mod native {
             }
         }
         rows.sort_by(|a, b| {
-            (a.port, &a.protocol, &a.address, a.pid, &a.state).cmp(&(
+            (a.port, &a.protocol, &a.address, &a.remote_address, a.pid, &a.state).cmp(&(
                 b.port,
                 &b.protocol,
                 &b.address,
+                &b.remote_address,
                 b.pid,
                 &b.state,
             ))
         });
         rows.dedup_by(|a, b| {
             a.port == b.port
+                && a.remote_address == b.remote_address
                 && a.pid == b.pid
                 && a.protocol == b.protocol
                 && a.address == b.address
@@ -399,11 +475,17 @@ mod tests {
         let files = parse_files("p20944\0cnode\0\nf1\0tIPv6\0PTCP\0n*:3000\0TST=LISTEN\0\nf2\0tIPv4\0PTCP\0n127.0.0.1:50000->127.0.0.1:3000\0TST=ESTABLISHED\0\nf3\0tIPv4\0PUDP\0n*:3000\0\np20945\0cnode\0\nf4\0tIPv6\0PTCP\0n[::1]:3000\0TST=LISTEN\0\n").unwrap();
         assert_eq!(files.len(), 4);
         assert_eq!(files[0].name, "node");
-        assert_eq!(local_endpoint(&files[0]), Some(("[::]".into(), 3000)));
-        assert_eq!(local_endpoint(&files[1]), Some(("127.0.0.1".into(), 50000)));
-        assert_eq!(local_endpoint(&files[2]), Some(("0.0.0.0".into(), 3000)));
+        assert_eq!(local_endpoint(&files[0]), Some(("[::]".into(), 3000, None)));
+        assert_eq!(
+            local_endpoint(&files[1]),
+            Some(("127.0.0.1".into(), 50000, Some("127.0.0.1:3000".into())))
+        );
+        assert_eq!(local_endpoint(&files[2]), Some(("0.0.0.0".into(), 3000, None)));
         assert_eq!(files[3].pid, 20945);
-        assert_eq!(local_endpoint(&files[3]), Some(("[::1]".into(), 3000)));
+        assert_eq!(local_endpoint(&files[3]), Some(("[::1]".into(), 3000, None)));
+        assert_eq!(format_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(format_utc(1704067200), "2024-01-01T00:00:00Z");
+        assert_eq!(format_utc(1735689599), "2024-12-31T23:59:59Z");
         let cwd = parse_files("p20944\0\nfcwd\0n/Users/test/中文 项目\n目录\0\n").unwrap();
         assert_eq!(cwd[0].address, "/Users/test/中文 项目\n目录");
         assert_eq!(cwd[0].fd, "cwd");
