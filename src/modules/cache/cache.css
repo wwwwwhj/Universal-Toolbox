@@ -1,0 +1,12 @@
+/* 模块 CSS 只负责数据布局，基础控件和视觉值来自全局 UI 规范。 */
+.cache-page .ui-table { min-width: 720px; }
+.cache-page .ui-table td:first-child { white-space: nowrap; }
+.cache-page .ui-table small { display: block; margin-top: var(--ui-space-1); color: var(--ui-muted); font-size: var(--ui-text-xs); overflow-wrap: anywhere; }
+.cache-size { white-space: nowrap; font-family: var(--ui-mono); }
+.cache-dir { display: flex; align-items: center; gap: var(--ui-space-3); }
+.cache-dir + .cache-dir { margin-top: var(--ui-space-3); }
+.cache-dir-main { min-width: 0; }
+.cache-dir code { overflow-wrap: anywhere; font-size: var(--ui-text-sm); }
+.cache-dir .ui-button { flex-shrink: 0; }
+.cache-showall { display: inline-flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-sm); white-space: nowrap; }
+.cache-snapshot-note { align-self: center; color: var(--ui-muted); font-size: var(--ui-text-xs); }

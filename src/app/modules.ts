@@ -1,10 +1,11 @@
 import type { ComponentType } from "react";
-import { Boxes, Gamepad2, GitBranch, Image as ImageIcon, Network, type LucideIcon } from "lucide-react";
+import { Boxes, Gamepad2, GitBranch, HardDrive, Image as ImageIcon, Network, type LucideIcon } from "lucide-react";
 import GitPage from "../modules/git/GitPage";
 import ImagePage from "../modules/image/ImagePage";
 import InventoryPage from "../modules/inventory/InventoryPage";
 import SnakePage from "../modules/snake/SnakePage";
 import PortsPage from "../modules/ports/PortsPage";
+import CachePage from "../modules/cache/CachePage";
 
 interface ToolboxModule {
   id: string;
@@ -21,4 +22,5 @@ export const modules: readonly ToolboxModule[] = [
   { id: "inventory", name: "库存管理", route: "/inventory", component: InventoryPage, icon: Boxes },
   { id: "snake", name: "Snake", route: "/snake", component: SnakePage, icon: Gamepad2 },
   { id: "ports", name: "端口管理", route: "/ports", component: PortsPage, icon: Network },
+  { id: "cache", name: "缓存管理", route: "/cache", component: CachePage, icon: HardDrive },
 ];
