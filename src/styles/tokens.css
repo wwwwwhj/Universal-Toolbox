@@ -22,6 +22,8 @@
   --ui-success: #2c6d47;
   --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   --ui-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ui-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+  --ui-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", "Microsoft YaHei", monospace;
   --ui-text-xs: 12px;
   --ui-text-sm: 13px;
   --ui-text-base: 14px;
@@ -37,6 +39,24 @@
   --ui-radius-md: 8px;
   --ui-control-height: 36px;
   --ui-sidebar-width: 220px;
+}
+
+:root[data-font="serif"] { --ui-font: var(--ui-font-serif); }
+:root[data-font="mono"] { --ui-font: var(--ui-font-mono); }
+
+:root[data-font-size="small"] {
+  --ui-text-xs: 11px;
+  --ui-text-sm: 12px;
+  --ui-text-base: 13px;
+  --ui-text-lg: 15px;
+  --ui-text-title: 20px;
+}
+:root[data-font-size="large"] {
+  --ui-text-xs: 13px;
+  --ui-text-sm: 14px;
+  --ui-text-base: 16px;
+  --ui-text-lg: 18px;
+  --ui-text-title: 26px;
 }
 
 /* 深色变量同时由系统媒体查询和手动 data-theme 提供，两处保持一致。 */

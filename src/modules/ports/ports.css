@@ -3,11 +3,9 @@
 .ports-page .ui-table { min-width: 760px; }
 .ports-page .ui-table td:nth-child(-n + 3) { white-space: nowrap; font-family: var(--ui-mono); }
 .ports-page small { display: block; max-width: 300px; margin-top: var(--ui-space-2); overflow-wrap: anywhere; color: var(--ui-muted); font-size: var(--ui-text-xs); }
-.ports-details { margin-top: var(--ui-space-3); }
-.ports-details summary { cursor: pointer; font-size: var(--ui-text-sm); color: var(--ui-muted); }
-.ports-details summary:hover { color: var(--ui-text); }
-.ports-details dl { min-width: 220px; max-width: 520px; }
-.ports-details dt { margin-top: var(--ui-space-3); font-weight: 600; }
-.ports-details dd { margin: var(--ui-space-1) 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.ports-details code { font-size: var(--ui-text-xs); }
-.ports-details ul { margin: 0; padding-left: var(--ui-space-4); }
+.ports-dialog dl { margin: var(--ui-space-3) 0; }
+.ports-dialog dt { margin-top: var(--ui-space-3); font-weight: 600; }
+.ports-dialog dd { margin: var(--ui-space-1) 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ports-dialog code { font-size: var(--ui-text-xs); }
+.ports-dialog ul { margin: 0; padding-left: var(--ui-space-4); }
+.ports-dialog-actions { margin-top: var(--ui-space-4); justify-content: flex-end; }

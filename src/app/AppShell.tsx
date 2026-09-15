@@ -3,7 +3,7 @@ import { Settings } from "lucide-react";
 import { modules } from "./modules";
 import { resolveModule, useHash } from "./router";
 import SettingsPage from "./SettingsPage";
-import { applyThemePreference, readThemePreference, type ThemePreference } from "./theme";
+import { applyPreferences, readPreferences, type Preferences } from "./preferences";
 
 const settingsRoute = "/settings";
 
@@ -12,9 +12,9 @@ export default function AppShell() {
   const isSettings = hash === `#${settingsRoute}`;
   const activeModule = isSettings ? undefined : resolveModule(hash);
   const Page = activeModule?.component;
-  const [theme, setTheme] = useState<ThemePreference>(readThemePreference);
+  const [preferences, setPreferences] = useState<Preferences>(readPreferences);
 
-  useEffect(() => applyThemePreference(theme), [theme]);
+  useEffect(() => applyPreferences(preferences), [preferences]);
 
   return (
     <div className="app-shell">
@@ -54,7 +54,7 @@ export default function AppShell() {
         </div>
       </aside>
       <main id="main-content" className="main-content" tabIndex={-1}>
-        {isSettings ? <SettingsPage theme={theme} onThemeChange={setTheme} /> : Page ? <Page key={activeModule.id} /> : (
+        {isSettings ? <SettingsPage preferences={preferences} onChange={setPreferences} /> : Page ? <Page key={activeModule.id} /> : (
           <section>
             <h1>工具不存在</h1>
             <p>当前地址没有对应的工具，请从左侧导航选择。</p>

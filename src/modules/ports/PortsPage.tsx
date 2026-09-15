@@ -40,29 +40,73 @@ export function groupPortOwners(rows: PortOwner[]) {
   return [...groups.values()];
 }
 
+interface ProcessPreset {
+  id: string;
+  label: string;
+  match: (name: string) => boolean;
+}
+
+// 预设按进程名匹配；Windows 的 ProcessName 和 macOS 的 lsof 命令名都不带扩展名。
+const PROCESS_PRESETS: ProcessPreset[] = [
+  { id: "nodejs", label: "Node.js", match: (name) => name.toLowerCase() === "node" },
+  { id: "java", label: "Java", match: (name) => ["java", "javaw"].includes(name.toLowerCase()) },
+  { id: "python", label: "Python", match: (name) => /^pythonw?[\d.]*$/.test(name.toLowerCase()) },
+];
+
+type QueryTarget =
+  | { kind: "all" }
+  | { kind: "port"; port: number }
+  | { kind: "preset"; preset: ProcessPreset };
+
 export default function PortsPage() {
   const [port, setPort] = useState("");
   const [rows, setRows] = useState<PortOwner[]>([]);
-  const [queriedPort, setQueriedPort] = useState<number | null>(null);
+  const [query, setQuery] = useState<QueryTarget | null>(null);
   const [hasQueried, setHasQueried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<PortOwner | null>(null);
+  const [detail, setDetail] = useState<PortOwner | null>(null);
   const confirmation = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
   const desktop = isTauri();
   const groupedRows = groupPortOwners(rows);
+  const queryLabel = !query ? "" : query.kind === "port" ? `端口 ${query.port}`
+    : query.kind === "preset" ? `${query.preset.label} 进程` : "全部端口";
 
   useEffect(() => {
     // 从长列表选择进程时，把确认信息带入视野和键盘焦点。
     if (selected) confirmation.current?.focus();
   }, [selected]);
 
-  async function refresh(value: number | null) {
-    const result = await invoke<PortOwner[]>("list_port_owners", { port: value });
-    setRows(result);
-    setQueriedPort(value);
+  useEffect(() => {
+    // 详情开关统一走 dialog 的 open 状态，关闭事件再清空选中的行。
+    if (detail && !dialog.current?.open) dialog.current?.showModal();
+    if (!detail && dialog.current?.open) dialog.current.close();
+  }, [detail]);
+
+  async function refresh(target: QueryTarget) {
+    const result = await invoke<PortOwner[]>("list_port_owners", {
+      port: target.kind === "port" ? target.port : null,
+    });
+    setRows(target.kind === "preset" ? result.filter((row) => target.preset.match(row.name)) : result);
+    setQuery(target);
     setHasQueried(true);
+  }
+
+  async function runQuery(target: QueryTarget) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setSelected(null);
+    setDetail(null);
+    // 新查询失败时不保留旧列表，避免把旧结果误认为当前查询的占用。
+    setRows([]);
+    setHasQueried(false);
+    try { await refresh(target); }
+    catch (error) { setError(String(error)); }
+    finally { setBusy(false); }
   }
 
   async function search() {
@@ -71,16 +115,7 @@ export default function PortsPage() {
       setError("请输入 1–65535 之间的整数端口，或留空查询全部。");
       return;
     }
-    setBusy(true);
-    setError("");
-    setMessage("");
-    setSelected(null);
-    // 新查询失败时不保留旧列表，避免把旧结果误认为当前端口的占用。
-    setRows([]);
-    setHasQueried(false);
-    try { await refresh(value); }
-    catch (error) { setError(String(error)); }
-    finally { setBusy(false); }
+    await runQuery(value === null ? { kind: "all" } : { kind: "port", port: value });
   }
 
   async function stop() {
@@ -97,7 +132,7 @@ export default function PortsPage() {
       // 停止成功与刷新失败分别反馈，避免误导用户再次停止同一个 PID。
       setRows([]);
       setHasQueried(false);
-      try { await refresh(queriedPort); }
+      try { await refresh(query ?? { kind: "all" }); }
       catch (error) { setError(`进程已停止，但刷新失败：${String(error)}`); }
     } catch (error) {
       setError(String(error));
@@ -117,6 +152,15 @@ export default function PortsPage() {
           value={port} onChange={(event) => setPort(event.target.value)} disabled={busy || !desktop} />
         </div>
         <button className="ui-button ui-button--primary" type="submit" disabled={busy || !desktop}>{busy ? "处理中…" : "查询 / 刷新"}</button>
+        <div className="ui-field" role="group" aria-label="常用类型">
+          <span>常用类型</span>
+          <div className="ui-actions">
+            {PROCESS_PRESETS.map((preset) => (
+              <button key={preset.id} className="ui-button" type="button" disabled={busy || !desktop}
+                onClick={() => void runQuery({ kind: "preset", preset })}>{preset.label}</button>
+            ))}
+          </div>
+        </div>
       </form>
       {error && <p className="ui-feedback ui-feedback--error" role="alert">{error}</p>}
       {message && <p className="ui-feedback ui-feedback--success" role="status">{message}</p>}
@@ -134,12 +178,12 @@ export default function PortsPage() {
       )}
       {hasQueried && (
         <>
-          <p role="status">{queriedPort === null ? "全部端口" : `端口 ${queriedPort}`}：{groupedRows.length} 组占用（按进程、端口和协议合并）</p>
+          <p role="status">{queryLabel}：{groupedRows.length} 组占用（按进程、端口和协议合并）</p>
           <details className="ui-help">
             <summary>地址说明 · IPv4 / IPv6</summary>
             <p>IPv4 地址如 127.0.0.1，IPv6 地址如 [::1]，这两个都是本机回环地址。监听时，0.0.0.0 表示全部 IPv4 地址，[::] 表示全部 IPv6 地址。</p>
           </details>
-          {rows.length === 0 ? <p>未发现有进程占用。此结果不包含无所属进程的 TIME_WAIT 记录或系统保留端口。</p> : (
+          {rows.length === 0 ? <p>{query?.kind === "preset" ? `未发现 ${query.preset.label} 进程占用端口。` : "未发现有进程占用。"}此结果不包含无所属进程的 TIME_WAIT 记录或系统保留端口。</p> : (
             <div className="ui-table-wrap" tabIndex={0} role="region" aria-label="端口占用结果，可横向滚动">
               <table className="ui-table">
                 <thead><tr><th>端口 / 协议</th><th>本地地址</th><th>状态</th><th>进程 / PID</th><th>操作</th></tr></thead>
@@ -154,26 +198,15 @@ export default function PortsPage() {
                     <td>{row.endpoints.map((endpoint) => <div key={`${endpoint.address}-${endpoint.state}`}>{endpoint.state}</div>)}</td>
                     <td>
                       <strong>{row.name}</strong> / {row.pid}<small>工作目录：{row.workingDirectory || "无法读取，见详情"}</small>
-                      <details className="ports-details">
-                        <summary>进程详情</summary>
-                        <dl>
-                          <dt>工作目录（当前）</dt><dd>{row.workingDirectory || row.workingDirectoryError || "无法读取（权限不足或进程已退出）"}</dd>
-                          <dt>启动命令</dt><dd><code>{row.commandLine || "无法读取（权限不足或进程已变化）"}</code></dd>
-                          <dt>程序路径</dt><dd>{row.path || "无法读取"}</dd>
-                          <dt>启动时间</dt><dd>{row.startedAtDisplay ? new Date(row.startedAtDisplay).toLocaleString() : "无法读取"}</dd>
-                          <dt>父进程</dt><dd>{row.parentPid === null ? "无法读取" : `${row.parentName || "名称不可用（可能已退出）"} / PID ${row.parentPid}`}</dd>
-                          <dt>关联 Windows 服务</dt>
-                          <dd>{row.platform === "macos" ? "不适用（macOS）" : row.services === null ? "无法读取（权限不足或进程已变化）" : row.services.length === 0 ? "无关联服务" : (
-                            <ul>{row.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
-                          )}</dd>
-                        </dl>
-                        {row.detailsWarnings.map((warning) => <p className="ui-feedback ui-feedback--error" key={warning}>{warning}</p>)}
-                      </details>
                     </td>
                     <td>
-                      <button className="ui-button" type="button" onClick={() => { setSelected(row); setError(""); setMessage(""); }}
-                        disabled={busy || !!row.blockedReason || !row.startedAt}
-                        aria-label={`停止 ${row.name}，PID ${row.pid}，端口 ${row.port}`}>停止进程</button>
+                      <div className="ui-actions">
+                        <button className="ui-button" type="button" onClick={() => setDetail(row)}
+                          aria-label={`查看 ${row.name} 详情，PID ${row.pid}，端口 ${row.port}`}>详情</button>
+                        <button className="ui-button" type="button" onClick={() => { setSelected(row); setError(""); setMessage(""); }}
+                          disabled={busy || !!row.blockedReason || !row.startedAt}
+                          aria-label={`停止 ${row.name}，PID ${row.pid}，端口 ${row.port}`}>停止进程</button>
+                      </div>
                       {row.blockedReason && <small>{row.blockedReason}</small>}
                     </td>
                   </tr>
@@ -183,6 +216,30 @@ export default function PortsPage() {
           )}
         </>
       )}
+      <dialog ref={dialog} className="ui-dialog ports-dialog" aria-labelledby="ports-detail-title"
+        onClose={() => setDetail(null)}
+        onClick={(event) => { if (event.target === dialog.current) dialog.current.close(); }}>
+        {detail && (
+          <>
+            <h2 id="ports-detail-title">{detail.name}（PID {detail.pid}）· {detail.port} / {detail.protocol}</h2>
+            <dl>
+              <dt>工作目录（当前）</dt><dd>{detail.workingDirectory || detail.workingDirectoryError || "无法读取（权限不足或进程已退出）"}</dd>
+              <dt>启动命令</dt><dd><code>{detail.commandLine || "无法读取（权限不足或进程已变化）"}</code></dd>
+              <dt>程序路径</dt><dd>{detail.path || "无法读取"}</dd>
+              <dt>启动时间</dt><dd>{detail.startedAtDisplay ? new Date(detail.startedAtDisplay).toLocaleString() : "无法读取"}</dd>
+              <dt>父进程</dt><dd>{detail.parentPid === null ? "无法读取" : `${detail.parentName || "名称不可用（可能已退出）"} / PID ${detail.parentPid}`}</dd>
+              <dt>关联 Windows 服务</dt>
+              <dd>{detail.platform === "macos" ? "不适用（macOS）" : detail.services === null ? "无法读取（权限不足或进程已变化）" : detail.services.length === 0 ? "无关联服务" : (
+                <ul>{detail.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
+              )}</dd>
+            </dl>
+            {detail.detailsWarnings.map((warning) => <p className="ui-feedback ui-feedback--error" key={warning}>{warning}</p>)}
+            <div className="ui-actions ports-dialog-actions">
+              <button className="ui-button" type="button" onClick={() => dialog.current?.close()}>关闭</button>
+            </div>
+          </>
+        )}
+      </dialog>
     </section>
   );
 }

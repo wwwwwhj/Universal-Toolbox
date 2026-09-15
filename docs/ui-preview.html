@@ -32,6 +32,14 @@
           <button class="ui-button" type="button" disabled>处理中…</button>
         </div>
         <details class="ui-help"><summary>地址说明 · IPv4 / IPv6</summary><p>0.0.0.0 为全部 IPv4 地址，[::] 为全部 IPv6 地址。</p></details>
+        <div class="ui-field">
+          <span id="preview-theme-label">主题（分段控件）</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="preview-theme-label">
+            <label><input type="radio" name="preview-theme" value="system" checked />跟随系统</label>
+            <label><input type="radio" name="preview-theme" value="light" />浅色</label>
+            <label><input type="radio" name="preview-theme" value="dark" />深色</label>
+          </div>
+        </div>
         <div class="ui-table-wrap" tabindex="0" role="region" aria-label="示例表格，可横向滚动">
           <table class="ui-table">
             <thead><tr><th>端口 / 协议</th><th>本地地址</th><th>状态</th><th>进程 / PID</th><th>操作</th></tr></thead>

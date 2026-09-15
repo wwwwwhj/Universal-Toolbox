@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       try {
-        var theme = localStorage.getItem("ui-theme");
-        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+        var prefs = JSON.parse(localStorage.getItem("ui-preferences") || "{}");
+        var root = document.documentElement;
+        if (prefs.theme === "light" || prefs.theme === "dark") root.dataset.theme = prefs.theme;
+        if (prefs.font === "serif" || prefs.font === "mono") root.dataset.font = prefs.font;
+        if (prefs.fontSize === "small" || prefs.fontSize === "large") root.dataset.fontSize = prefs.fontSize;
       } catch (error) {}
     </script>
     <title>万能工具箱</title>
