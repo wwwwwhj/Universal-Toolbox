@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings } from "lucide-react";
+import { Settings, Wrench } from "lucide-react";
 import { modules } from "./modules";
 import { resolveModule, useHash } from "./router";
 import SettingsPage from "./SettingsPage";
@@ -30,7 +30,10 @@ export default function AppShell() {
         跳到主内容
       </a>
       <aside className="sidebar">
-        <div className="brand">万能工具箱</div>
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true"><Wrench size={13} strokeWidth={2.2} /></span>
+          万能工具箱
+        </div>
         <p className="sidebar-label">工具</p>
         <nav aria-label="工具导航">
           {modules.map((module) => (

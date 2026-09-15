@@ -16,6 +16,6 @@
 .ports-dialog code { font-size: var(--ui-text-xs); }
 .ports-dialog ul { margin: 0; padding-left: var(--ui-space-4); }
 .ports-dialog-actions { margin-top: var(--ui-space-4); justify-content: flex-end; }
-.ports-copy { margin-left: var(--ui-space-2); padding: 0 var(--ui-space-1); border: 0; background: none; color: var(--ui-muted); font-size: var(--ui-text-xs); font-weight: 400; text-decoration: underline; cursor: pointer; }
-.ports-copy:hover { color: var(--ui-text); }
+.ports-copy { margin-left: var(--ui-space-2); padding: 0 var(--ui-space-1); border: 0; background: none; color: var(--ui-accent); font-size: var(--ui-text-xs); font-weight: 400; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.ports-copy:hover { color: var(--ui-accent-hover); }
 .ports-copy:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
