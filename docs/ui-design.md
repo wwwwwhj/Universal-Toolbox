@@ -91,6 +91,7 @@ CSS 通过 `App.css` 全局引入，模块无需重复导入。当前使用原�
 ## 外观偏好
 
 - 外观选项（主题、字体、字号）在「设置」页以 `.ui-segmented` 分段控件修改（Shell 页面 `#/settings`，经侧栏底部链接进入）；选择经 `localStorage` 持久化，`index.html` 的内联脚本在渲染前应用以避免闪烁。
+- 工具模块可在注册表声明 `settingsComponent`，设置页将其渲染为独立分区；分区内使用 `ui-` 类与共享的 `SegmentedField`（`src/shared/SegmentedField.tsx`），设置状态归模块自己管理，不进入全局外观偏好。
 - 主题：`data-theme="light|dark"` 覆盖系统结果，默认跟随系统；`tokens.css` 的深色变量同时由媒体查询和 `data-theme="dark"` 提供，两处保持一致。
 - 字体：`data-font="serif|mono"` 覆盖 `--ui-font`，默认系统字体栈；字号：`data-font-size="small|large"` 整体缩放 `--ui-text-*` 阶梯，默认标准。
 - 模块只使用语义变量，不读取或判断当前偏好，不自行响应 `data-*`。

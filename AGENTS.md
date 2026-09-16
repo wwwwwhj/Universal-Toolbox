@@ -139,6 +139,14 @@ Module Registry 是应用内部的模块清单，不是插件系统。
 
 除非真实需求已经出现。
 
+### 模块设置分区
+
+模块可以通过可选的 `settingsComponent` 向设置页注册一个配置分区，Shell 统一装配但不关心模块内部字段。
+
+模块自己的设置状态由模块持有并持久化，可使用 `src/shared/module-settings.ts` 的 `createModuleSettings`（localStorage + `useSyncExternalStore` 订阅）；业务页与设置分区共享同一实例即完成联动，不要把模块专属字段塞进全局 `Preferences`。
+
+参考实现：`src/modules/ports/settings.ts` 与 `PortsSettings.tsx`。
+
 ---
 
 ## 前端与 Rust 的边界

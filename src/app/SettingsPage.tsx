@@ -1,46 +1,15 @@
-import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { defaultPreferences, type Preferences } from "./preferences";
+import { modules } from "./modules";
+import { SegmentedField } from "../shared/SegmentedField";
 
 interface SettingsPageProps {
   preferences: Preferences;
   onChange: (preferences: Preferences) => void;
 }
 
-interface SegmentedOption<T extends string> {
-  value: T;
-  label: string;
-  icon?: LucideIcon;
-  sample?: string;
-}
-
-function SegmentedField<T extends string>(props: {
-  id: string;
-  label: string;
-  value: T;
-  options: readonly SegmentedOption<T>[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="ui-field">
-      <span id={`${props.id}-label`}>{props.label}</span>
-      <div className="ui-segmented" role="radiogroup" aria-labelledby={`${props.id}-label`}>
-        {props.options.map((option) => (
-          <label key={option.value} data-sample={option.sample}>
-            <input
-              type="radio"
-              name={props.id}
-              value={option.value}
-              checked={props.value === option.value}
-              onChange={() => props.onChange(option.value)}
-            />
-            {option.icon && <option.icon size={16} aria-hidden="true" />}
-            {option.label}
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
+// 声明了 settingsComponent 的模块在设置页获得一个独立分区，配置内容由模块自己实现。
+const settingsModules = modules.filter((module) => module.settingsComponent);
 
 export default function SettingsPage({ preferences, onChange }: SettingsPageProps) {
   return (
@@ -85,6 +54,15 @@ export default function SettingsPage({ preferences, onChange }: SettingsPageProp
           恢复默认
         </button>
       </div>
+      {settingsModules.map((module) => {
+        const ModuleSettings = module.settingsComponent!;
+        return (
+          <section key={module.id} className="settings-module" aria-label={`${module.name}设置`}>
+            <h2>{module.name}</h2>
+            <ModuleSettings />
+          </section>
+        );
+      })}
     </section>
   );
 }

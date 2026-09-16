@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { portsSettings, type PortsSortKey } from "./settings";
 import "./ports.css";
 
 interface PortOwner {
@@ -111,9 +112,11 @@ export default function PortsPage() {
     data: PortOwnerDetails | null;
     error: string;
   } | null>(null);
-  const [listenOnly, setListenOnly] = useState(false);
-  const [sort, setSort] = useState<{ key: "port" | "name"; asc: boolean }>({ key: "port", asc: true });
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  // 排序、状态筛选和自动刷新来自模块设置：与设置页共享同一状态，修改即时生效并持久化。
+  const settings = portsSettings.use();
+  const persistError = portsSettings.usePersistError();
+  const { listenOnly, autoRefresh } = settings;
+  const sort = { key: settings.sortKey, asc: settings.sortAsc };
   const [copied, setCopied] = useState<{ key: string; ok: boolean } | null>(null);
   const confirmation = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -183,9 +186,9 @@ export default function PortsPage() {
         .then((result) => { if (generation.current === gen) setRows(result); })
         .catch(() => {})
         .finally(() => { polling.current = false; });
-    }, 5000);
+    }, settings.refreshSeconds * 1000);
     return () => window.clearInterval(timer);
-  }, [autoRefresh, query, desktop, busy]);
+  }, [autoRefresh, settings.refreshSeconds, query, desktop, busy]);
 
   async function fetchRows(target: QueryTarget) {
     // 名称与预设过滤在后端执行，查询只需为匹配的进程收集信息。
@@ -231,8 +234,8 @@ export default function PortsPage() {
     });
   }
 
-  function toggleSort(key: "port" | "name") {
-    setSort((current) => current.key === key ? { key, asc: !current.asc } : { key, asc: true });
+  function toggleSort(key: PortsSortKey) {
+    portsSettings.update(settings.sortKey === key ? { sortAsc: !settings.sortAsc } : { sortKey: key, sortAsc: true });
   }
 
   function copy(field: string, value: string) {
@@ -311,6 +314,11 @@ export default function PortsPage() {
       </form>
       {error && <p className="ui-feedback ui-feedback--error" role="alert">{error}</p>}
       {message && <p className="ui-feedback ui-feedback--success" role="status">{message}</p>}
+      {persistError && (
+        <p className="ui-feedback ui-feedback--error" role="alert">
+          排序、筛选等视图偏好未能保存到本机存储，重启后将恢复为上次保存的值：{persistError}
+        </p>
+      )}
       {selected && (
         <div ref={confirmation} tabIndex={-1} className="ui-confirm" role="group" aria-label="确认停止进程">
           <h2>停止 {selected.name}（PID {selected.pid}）？</h2>
@@ -329,15 +337,15 @@ export default function PortsPage() {
             <p role="status">{queryLabel}：{displayedRows.length} 组占用（按进程、端口和协议合并）</p>
             <div className="ui-segmented" role="radiogroup" aria-label="状态筛选">
               <label>
-                <input type="radio" name="ports-state" value="all" checked={!listenOnly} onChange={() => setListenOnly(false)} />全部
+                <input type="radio" name="ports-state" value="all" checked={!listenOnly} onChange={() => portsSettings.update({ listenOnly: false })} />全部
               </label>
               <label>
-                <input type="radio" name="ports-state" value="listen" checked={listenOnly} onChange={() => setListenOnly(true)} />仅监听
+                <input type="radio" name="ports-state" value="listen" checked={listenOnly} onChange={() => portsSettings.update({ listenOnly: true })} />仅监听
               </label>
             </div>
             <label className="ports-autorefresh">
               <input type="checkbox" checked={autoRefresh} disabled={!desktop || !query}
-                onChange={(event) => setAutoRefresh(event.target.checked)} />自动刷新（5 秒）
+                onChange={(event) => portsSettings.update({ autoRefresh: event.target.checked })} />自动刷新（{settings.refreshSeconds} 秒）
             </label>
           </div>
           <details className="ui-help">
