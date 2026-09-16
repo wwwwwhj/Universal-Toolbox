@@ -15,25 +15,28 @@ src/
   App.css                   # 应用布局与基础样式
   app/
     AppShell.tsx            # 左侧导航、主内容和未知地址提示
+    SettingsPage.tsx        # 全局外观偏好与各模块设置分区
     modules.ts              # 静态 Module Registry
+    preferences.ts          # 主题、字体、字号偏好
     router.ts               # 原生 Hash 路由
+  shared/
+    module-settings.ts      # 模块设置的持久化状态容器
+    SegmentedField.tsx      # 设置页共用的分段控件
   modules/
-    git/GitPage.tsx
-    image/ImagePage.tsx
-    inventory/InventoryPage.tsx
     snake/SnakePage.tsx
-    ports/                  # 端口查询和进程停止界面
-src-tauri/src/modules/ports/ # Windows 端口查询与安全停止
+    ports/                  # 端口查询、进程停止与模块设置
+    cache/                  # 开发缓存目录扫描与位置修改
+src-tauri/src/modules/      # ports 端口操作、cache 缓存目录扫描
 scripts/check-architecture.mjs
 ```
 
-Git、Image、Inventory、Snake 为独立占位页面；端口管理为 Windows 原生工具。模块不互相引用；Shell 只依赖注册表中的描述和页面组件。
+Snake 为独立占位页面；端口管理和开发缓存管理使用 Rust 原生能力。模块不互相引用；Shell 只依赖注册表中的描述和页面组件。
 
 ## 注册与路由
 
-`src/app/modules.ts` 的静态数组记录工具的 `id`、`name`、`route` 和 `component`。数组顺序即导航顺序，Shell 从同一清单生成导航并选择页面。
+`src/app/modules.ts` 的静态数组记录工具的 `id`、`name`、`route`、`component` 和 `icon`，可选 `category`（侧栏分组，未声明归入「工具」）与 `settingsComponent`（设置页分区）。数组顺序即导航顺序，Shell 从同一清单生成导航并选择页面。
 
-路由使用 `#/git`、`#/image`、`#/inventory`、`#/snake`、`#/ports`，原生链接和 `hashchange` 支持前进、后退与刷新，不需要服务器配置路径回退。空 Hash 或 `#/` 显示首个模块；未知地址显示提示与返回入口。
+路由使用 `#/snake`、`#/ports`、`#/cache`，原生链接和 `hashchange` 支持前进、后退与刷新，不需要服务器配置路径回退。空 Hash 或 `#/` 显示首个模块；未知地址显示提示与返回入口。
 
 目前只匹配完整模块路径，不解析查询参数或嵌套路由。切换工具会卸载旧页面，不保存模块状态。出现真实的子页面或工作区需求时再扩展。
 
@@ -67,7 +70,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib modules::ports::tests
 
 不引入插件系统、动态加载、Event Bus、DI、微前端或通用 Service/Manager；静态导入和注册数组已经满足当前扩展需求。
 
-不增加数据库、持久化、全局状态、Workspace、收藏或主题设置；当前模块没有这些能力的实际使用者。
+不增加数据库、全局状态框架、Workspace 或收藏等重型基础设施；外观偏好和模块设置用 `localStorage` 持久化已经足够。
 
 ## 端口管理（Windows / macOS）
 

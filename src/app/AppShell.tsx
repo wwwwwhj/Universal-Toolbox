@@ -1,18 +1,29 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Settings, Wrench } from "lucide-react";
-import { modules } from "./modules";
+import { applyModuleOrder, type ToolboxModule } from "./modules";
 import { resolveModule, useHash } from "./router";
 import SettingsPage from "./SettingsPage";
 import { applyPreferences, readPreferences, type Preferences } from "./preferences";
 
 const settingsRoute = "/settings";
+const defaultCategory = "工具";
 
 export default function AppShell() {
   const hash = useHash();
   const isSettings = hash === `#${settingsRoute}`;
-  const activeModule = isSettings ? undefined : resolveModule(hash);
-  const Page = activeModule?.component;
   const [preferences, setPreferences] = useState<Preferences>(readPreferences);
+  const orderedModules = applyModuleOrder(preferences.moduleOrder);
+  const activeModule = isSettings ? undefined : resolveModule(hash, orderedModules);
+  const Page = activeModule?.component;
+
+  // 侧栏按模块声明的分类分组，未声明的归入默认组；组顺序跟随排序后首次出现的顺序。
+  const navGroups = new Map<string, ToolboxModule[]>();
+  for (const module of orderedModules) {
+    const category = module.category ?? defaultCategory;
+    const group = navGroups.get(category);
+    if (group) group.push(module);
+    else navGroups.set(category, [module]);
+  }
 
   useEffect(() => applyPreferences(preferences), [preferences]);
 
@@ -34,19 +45,23 @@ export default function AppShell() {
           <span className="brand-mark" aria-hidden="true"><Wrench size={13} strokeWidth={2.2} /></span>
           万能工具箱
         </div>
-        <p className="sidebar-label">工具</p>
-        <nav aria-label="工具导航">
-          {modules.map((module) => (
-            <a
-              key={module.id}
-              href={`#${module.route}`}
-              aria-current={activeModule?.id === module.id ? "page" : undefined}
-            >
-              <module.icon size={16} aria-hidden="true" />
-              {module.name}
-            </a>
-          ))}
-        </nav>
+        {[...navGroups].map(([category, items]) => (
+          <Fragment key={category}>
+            <p className="sidebar-label">{category}</p>
+            <nav aria-label={category}>
+              {items.map((module) => (
+                <a
+                  key={module.id}
+                  href={`#${module.route}`}
+                  aria-current={activeModule?.id === module.id ? "page" : undefined}
+                >
+                  <module.icon size={16} aria-hidden="true" />
+                  {module.name}
+                </a>
+              ))}
+            </nav>
+          </Fragment>
+        ))}
         <div className="sidebar-footer">
           <nav aria-label="设置">
             <a href={`#${settingsRoute}`} aria-current={isSettings ? "page" : undefined}>

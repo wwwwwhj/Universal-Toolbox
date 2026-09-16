@@ -6,12 +6,15 @@ export interface Preferences {
   theme: ThemePreference;
   font: FontPreference;
   fontSize: FontSizePreference;
+  // 工具在侧栏中的自定义顺序（模块 id 列表）；空数组表示注册表顺序。
+  moduleOrder: string[];
 }
 
 export const defaultPreferences: Preferences = {
   theme: "system",
   font: "system",
   fontSize: "medium",
+  moduleOrder: [],
 };
 
 const STORAGE_KEY = "ui-preferences";
@@ -24,6 +27,9 @@ export function readPreferences(): Preferences {
       theme: raw.theme === "light" || raw.theme === "dark" ? raw.theme : "system",
       font: raw.font === "serif" || raw.font === "mono" ? raw.font : "system",
       fontSize: raw.fontSize === "small" || raw.fontSize === "large" ? raw.fontSize : "medium",
+      moduleOrder: Array.isArray(raw.moduleOrder)
+        ? raw.moduleOrder.filter((id): id is string => typeof id === "string")
+        : [],
     };
   } catch {
     return defaultPreferences;

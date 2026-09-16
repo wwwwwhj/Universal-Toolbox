@@ -58,6 +58,13 @@ a { color: inherit; text-underline-offset: 3px; }
 .settings-page [data-sample="small"] { font-size: 12px; }
 .settings-page [data-sample="medium"] { font-size: 14px; }
 .settings-page [data-sample="large"] { font-size: 16px; }
+/* 工具排序列表：行内显示图标、名称与分类，右侧上移/下移按钮。 */
+.settings-order { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--ui-space-2); width: 340px; max-width: 100%; }
+.settings-order li { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-4); padding: var(--ui-space-1) var(--ui-space-2) var(--ui-space-1) var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface); }
+.settings-order-name { display: inline-flex; align-items: center; gap: var(--ui-space-2); min-width: 0; }
+.settings-order-name svg { flex-shrink: 0; color: var(--ui-muted); }
+.settings-order-name small { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.settings-order .ui-button { min-height: 28px; padding: var(--ui-space-1) var(--ui-space-2); font-size: var(--ui-text-xs); box-shadow: none; }
 /* 模块在设置页的配置分区：与全局偏好用分隔线区分，字段样式沿用公共 ui- 类。 */
 .settings-module { margin-top: var(--ui-space-6); padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border); }
 .settings-module h2 { margin: 0; }

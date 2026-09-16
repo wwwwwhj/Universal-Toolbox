@@ -15,6 +15,7 @@ pub fn run() {
             modules::cache::scan_dev_caches,
             modules::cache::set_cache_dir,
             modules::cache::open_cache_dir,
+            modules::cache::list_cache_targets,
             modules::ports::get_port_owner_details,
             modules::ports::list_port_owners,
             modules::ports::stop_port_owner

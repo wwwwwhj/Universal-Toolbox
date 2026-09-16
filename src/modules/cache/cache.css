@@ -15,5 +15,12 @@
 .cache-dialog dd { margin: var(--ui-space-1) 0 0; overflow-wrap: anywhere; }
 .cache-dialog .ui-field { margin: var(--ui-space-3) 0; }
 .cache-dialog .ui-input { width: 100%; }
+.cache-dialog textarea.ui-input { resize: vertical; font-family: var(--ui-mono); }
+.cache-dialog .ui-field small { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+/* 设置页的目标命令列表：内置与自定义目标的获取/修改命令。 */
+.cache-targets { min-width: 640px; }
+.cache-targets .cache-command { display: block; margin: var(--ui-space-1) 0; font-size: var(--ui-text-xs); overflow-wrap: anywhere; }
+.cache-targets tr.is-hidden td { opacity: 0.55; }
+.cache-targets td small { display: block; margin-top: var(--ui-space-1); max-width: 380px; color: var(--ui-muted); font-size: var(--ui-text-xs); overflow-wrap: anywhere; }
 .cache-dialog-actions { margin-top: var(--ui-space-4); justify-content: flex-end; }
 .cache-guide { margin: var(--ui-space-3) 0; line-height: 1.6; }

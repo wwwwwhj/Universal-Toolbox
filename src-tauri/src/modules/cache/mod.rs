@@ -1,9 +1,13 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -11,8 +15,10 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub struct CacheDir {
     path: String,
-    // 路径来源：工具配置 / 环境变量 / 默认路径。
+    // 路径来源：工具配置 / 环境变量 / 默认路径 / 自定义。
     source: &'static str,
+    // 产生该路径的具体方式：探测命令文本（如 `npm config get cache`）或环境变量名。
+    source_detail: Option<String>,
     exists: bool,
     size_bytes: u64,
     file_count: u64,
@@ -24,16 +30,47 @@ pub struct CacheDir {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheTarget {
-    id: &'static str,
-    name: &'static str,
-    category: &'static str,
+    id: String,
+    name: String,
+    category: String,
     dirs: Vec<CacheDir>,
     total_bytes: u64,
     can_set: bool,
     // 展示给用户看的命令模板，例如 `npm config set cache <新目录>`。
-    set_command: Option<&'static str>,
+    set_command: Option<String>,
     // 没有 CLI 配置命令时，给出环境变量或配置文件的操作指引。
     relocate_guide: Option<String>,
+    // 用户在设置中添加的自定义目标。
+    custom: bool,
+    // 目标级错误：自定义获取命令失败、固定目录不是绝对路径等，展示在列表中而不是静默消失。
+    error: Option<String>,
+}
+
+// 设置页展示的探测方式说明：每个内置目标的获取命令与修改命令。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheTargetInfo {
+    id: &'static str,
+    name: &'static str,
+    category: &'static str,
+    // 获取缓存路径的方式：探测命令、环境变量、平台默认路径。
+    get_commands: Vec<String>,
+    set_command: Option<&'static str>,
+    relocate_guide: Option<String>,
+}
+
+// 用户在设置中维护的自定义缓存目标，由前端随扫描请求传入。
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CustomTarget {
+    id: String,
+    name: String,
+    // 输出中最后一个绝对路径行作为缓存目录；空表示没有查询命令。
+    get_command: Option<String>,
+    // {path} 会被替换为新目录，没有占位符时在末尾追加路径；空表示不支持命令修改。
+    set_command: Option<String>,
+    // 没有查询命令时的固定目录列表（绝对路径）。
+    dirs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -569,6 +606,41 @@ enum CaptureError {
     Failed(String),
 }
 
+// 管道读取线程的产物：读取句柄、共享缓冲与停止信号。
+// 缓冲独立可取、停止独立可发：主进程退出后管道可能仍被其派生的子进程继承而不关闭，
+// join 或不限时读取都会死等；限时等待、取缓冲、通知停止都由调用方独立完成，
+// 线程在管道关闭或收到停止信号后自行结束（阻塞中的 read 无法打断，但不再累积缓冲）。
+type PipeReader = (
+    std::thread::JoinHandle<()>,
+    Arc<Mutex<Vec<u8>>>,
+    Arc<AtomicBool>,
+);
+
+fn spawn_pipe_reader(mut pipe: impl std::io::Read + Send + 'static) -> PipeReader {
+    let buf = Arc::new(Mutex::new(Vec::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let shared = Arc::clone(&buf);
+    let signaled = Arc::clone(&stop);
+    let handle = std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match pipe.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if signaled.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    match shared.lock() {
+                        Ok(mut out) => out.extend_from_slice(&chunk[..n]),
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+    });
+    (handle, buf, stop)
+}
+
 fn run_capture(program: &str, args: &[&str]) -> Result<String, CaptureError> {
     let mut command = Command::new(program);
     command
@@ -589,52 +661,141 @@ fn run_capture(program: &str, args: &[&str]) -> Result<String, CaptureError> {
             CaptureError::Failed(format!("无法启动 {program}：{error}"))
         }
     })?;
-    // 配置查询输出只有一行；限制等待时间，避免工具异常时拖住整个扫描。
+    // 输出可能超过管道容量：等退出再读会让子进程阻塞在写入，读取放到独立线程。
+    let stdout = child.stdout.take().map(spawn_pipe_reader);
+    let stderr = child.stderr.take().map(spawn_pipe_reader);
+    let finished = |reader: &Option<PipeReader>| {
+        reader
+            .as_ref()
+            .map_or(true, |(handle, _, _)| handle.is_finished())
+    };
+    let signal_stop = |reader: &Option<PipeReader>| {
+        if let Some((_, _, stop)) = reader {
+            stop.store(true, Ordering::Relaxed);
+        }
+    };
+    // 配置查询通常输出一行；限制等待时间，避免工具异常时拖住整个扫描。
     let deadline = Instant::now() + Duration::from_secs(4);
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| CaptureError::Failed(format!("无法读取 {program} 输出：{error}")))?;
-                if !output.status.success() {
-                    let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    return Err(CaptureError::Failed(if detail.is_empty() {
-                        format!("{program} 退出码 {}", output.status)
-                    } else {
-                        format!("{program} 失败：{detail}")
-                    }));
-                }
-                return String::from_utf8(output.stdout)
-                    .map_err(|error| CaptureError::Failed(format!("{program} 输出编码无效：{error}")));
-            }
+            Ok(Some(status)) => break status,
             Ok(None) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(15));
             }
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
+                signal_stop(&stdout);
+                signal_stop(&stderr);
                 return Err(CaptureError::Failed(format!("{program} 探测超时")));
             }
         }
+    };
+    // 主进程退出后管道可能仍被其派生的子进程持有而不关闭：只给读取线程一个短窗口排空输出。
+    // 仍未读完说明输出不完整——截断的内容可能被误解析（例如半截路径被当成合法目录去扫描），
+    // 不接受部分结果：通知读取线程停止累积并返回超时。
+    let drain_deadline = Instant::now() + Duration::from_secs(2);
+    while !(finished(&stdout) && finished(&stderr)) && Instant::now() < drain_deadline {
+        std::thread::sleep(Duration::from_millis(15));
     }
+    if !(finished(&stdout) && finished(&stderr)) {
+        signal_stop(&stdout);
+        signal_stop(&stderr);
+        return Err(CaptureError::Failed(format!("{program} 输出读取超时")));
+    }
+    let drain = |reader: &Option<PipeReader>| {
+        reader
+            .as_ref()
+            .and_then(|(_, buf, _)| {
+                buf.lock().ok().map(|mut out| std::mem::take(&mut *out))
+            })
+            .unwrap_or_default()
+    };
+    let stdout = drain(&stdout);
+    let stderr = drain(&stderr);
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr).trim().to_string();
+        return Err(CaptureError::Failed(if detail.is_empty() {
+            format!("{program} 退出码 {status}")
+        } else {
+            format!("{program} 失败：{detail}")
+        }));
+    }
+    String::from_utf8(stdout)
+        .map_err(|error| CaptureError::Failed(format!("{program} 输出编码无效：{error}")))
 }
 
 fn probe_dir(probe: &Probe) -> Option<PathBuf> {
-    for name in program_names(probe.program) {
-        if let Ok(output) = run_capture(&name, probe.args) {
-            // 有些命令在结果前后打印状态行，取最后一个形如绝对路径的输出行。
-            let path = output
-                .lines()
-                .rev()
-                .map(str::trim)
-                .find(|line| !line.is_empty() && Path::new(line).is_absolute());
-            if let Some(path) = path {
-                return Some(PathBuf::from(path));
+    // 内置目标有环境变量和默认路径兜底，探测失败不单独报错。
+    probe_command(probe.program, probe.args).ok()
+}
+
+// 依次尝试程序在各常见位置的候选名，取输出中最后一个形如绝对路径的行。
+// 失败时保留原因（程序不存在 / 命令失败 / 输出无路径），供自定义目标展示。
+fn probe_command(program: &str, args: &[&str]) -> Result<PathBuf, String> {
+    let mut failure: Option<String> = None;
+    for name in program_names(program) {
+        match run_capture(&name, args) {
+            Ok(output) => {
+                let path = output
+                    .lines()
+                    .rev()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty() && Path::new(line).is_absolute());
+                if let Some(path) = path {
+                    return Ok(PathBuf::from(path));
+                }
+                failure.get_or_insert_with(|| format!("{program} 的输出中没有绝对路径"));
+            }
+            Err(CaptureError::NotFound) => continue,
+            Err(CaptureError::Failed(error)) => {
+                failure.get_or_insert(error);
             }
         }
     }
-    None
+    Err(failure.unwrap_or_else(|| format!("未找到 {program} 命令行，无法执行探测。")))
+}
+
+// 按 shell 习惯拆分命令行：单双引号内的空白保留，未闭合引号吞掉剩余内容。
+// has_arg 区分「没有参数」和「引号包裹的空参数」：遇到引号或普通字符即算开始一个参数，
+// 像 `--name ""` 的空串必须保留，否则后续参数位置会错位。
+fn split_command(command: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut has_arg = false;
+    for ch in command.chars() {
+        match quote {
+            Some(active) if ch == active => quote = None,
+            Some(_) => current.push(ch),
+            None if ch == '"' || ch == '\'' => {
+                quote = Some(ch);
+                has_arg = true;
+            }
+            None if ch.is_whitespace() => {
+                if has_arg {
+                    args.push(std::mem::take(&mut current));
+                    has_arg = false;
+                }
+            }
+            None => {
+                current.push(ch);
+                has_arg = true;
+            }
+        }
+    }
+    if has_arg {
+        args.push(current);
+    }
+    args
+}
+
+// 自定义获取命令：按 shell 规则拆分（支持引号包裹含空格的路径），第一个词为程序。
+fn probe_command_line(command: &str) -> Result<PathBuf, String> {
+    let args = split_command(command);
+    let (program, rest) = args.split_first().ok_or("获取命令为空。")?;
+    let arg_refs: Vec<&str> = rest.iter().map(String::as_str).collect();
+    probe_command(program, &arg_refs)
 }
 
 #[cfg(windows)]
@@ -748,11 +909,22 @@ fn same_or_within(key: &str, parent: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
+// 待统计的候选目录：路径、来源分类和产生它的具体命令/变量名。
+struct Candidate {
+    path: PathBuf,
+    source: &'static str,
+    detail: Option<String>,
+}
+
 fn resolve_target(spec: &TargetSpec, previous: &[String]) -> CacheTarget {
-    let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
+    let mut candidates: Vec<Candidate> = Vec::new();
     for probe in spec.probes {
         if let Some(path) = probe_dir(probe) {
-            candidates.push((path, "工具配置"));
+            candidates.push(Candidate {
+                path,
+                source: "工具配置",
+                detail: Some(format!("{} {}", probe.program, probe.args.join(" "))),
+            });
             break;
         }
     }
@@ -760,40 +932,136 @@ fn resolve_target(spec: &TargetSpec, previous: &[String]) -> CacheTarget {
         candidates.extend(
             joined(env_dir(key), segments)
                 .into_iter()
-                .map(|path| (path, "环境变量")),
+                .map(|path| Candidate {
+                    path,
+                    source: "环境变量",
+                    detail: Some((*key).to_string()),
+                }),
         );
     }
-    candidates.extend(
-        (spec.defaults)()
-            .into_iter()
-            .map(|path| (path, "默认路径")),
-    );
+    candidates.extend((spec.defaults)().into_iter().map(|path| Candidate {
+        path,
+        source: "默认路径",
+        detail: None,
+    }));
+    let (can_set, set_command, relocate_guide) = relocate_fields(&spec.relocate);
+    build_target(
+        spec.id.to_string(),
+        spec.name.to_string(),
+        spec.category.to_string(),
+        candidates,
+        previous,
+        can_set,
+        set_command.map(str::to_string),
+        relocate_guide,
+        false,
+    )
+}
 
-    // 相同路径去重（保留优先级更高的来源）。父子目录重叠时两者都保留：
-    // 父目录测量时排除已单列的子树避免重复计数，列表仍能看到「工具配置」等更具体来源。
-    let mut kept: Vec<(PathBuf, &'static str, String)> = Vec::new();
-    for (path, source) in candidates {
-        let path = normalize_path(&path);
-        let key = normalize_key(&path);
-        if kept.iter().any(|(_, _, k)| k == &key) {
+// 自定义目标：获取命令探测 + 固定目录，来源分别标注为「自定义命令」和「自定义目录」。
+// 自定义目标没有其他兜底来源，探测失败或非绝对路径目录都要展示出来而不是静默消失。
+fn resolve_custom_target(custom: &CustomTarget, previous: &[String]) -> CacheTarget {
+    let mut candidates: Vec<Candidate> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    if let Some(command) = non_empty(custom.get_command.as_deref()) {
+        match probe_command_line(command) {
+            Ok(path) => candidates.push(Candidate {
+                path,
+                source: "自定义命令",
+                detail: Some(command.to_string()),
+            }),
+            Err(error) => errors.push(format!("获取命令失败：{error}")),
+        }
+    }
+    for dir in &custom.dirs {
+        let trimmed = dir.trim();
+        if trimmed.is_empty() {
             continue;
         }
-        kept.push((path, source, key));
+        // 相对路径无法确认指向，自定义目录只接受绝对路径。
+        if Path::new(trimmed).is_absolute() {
+            candidates.push(Candidate {
+                path: PathBuf::from(trimmed),
+                source: "自定义目录",
+                detail: None,
+            });
+        } else {
+            errors.push(format!("固定目录不是绝对路径：{trimmed}"));
+        }
+    }
+    let set_command = non_empty(custom.set_command.as_deref()).map(str::to_string);
+    let mut target = build_target(
+        custom.id.clone(),
+        custom.name.clone(),
+        "自定义".to_string(),
+        candidates,
+        previous,
+        set_command.is_some(),
+        set_command,
+        None,
+        true,
+    );
+    if !errors.is_empty() {
+        target.error = Some(errors.join("；"));
+    }
+    target
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+fn relocate_fields(relocate: &Option<Relocate>) -> (bool, Option<&'static str>, Option<String>) {
+    match relocate {
+        Some(Relocate::Command(setter)) => (true, Some(setter.label), None),
+        Some(Relocate::Env { var, note }) => (false, None, Some(env_guide(var, note))),
+        Some(Relocate::Guide(text)) => (false, None, Some((*text).to_string())),
+        None => (false, None, None),
+    }
+}
+
+// 候选目录去重、补充「之前的位置」、测量大小，组装出展示用的目标。
+fn build_target(
+    id: String,
+    name: String,
+    category: String,
+    candidates: Vec<Candidate>,
+    previous: &[String],
+    can_set: bool,
+    set_command: Option<String>,
+    relocate_guide: Option<String>,
+    custom: bool,
+) -> CacheTarget {
+    // 相同路径去重（保留优先级更高的来源）。父子目录重叠时两者都保留：
+    // 父目录测量时排除已单列的子树避免重复计数，列表仍能看到「工具配置」等更具体来源。
+    let mut kept: Vec<(PathBuf, &'static str, Option<String>, String)> = Vec::new();
+    for Candidate {
+        path,
+        source,
+        detail,
+    } in candidates
+    {
+        let path = normalize_path(&path);
+        let key = normalize_key(&path);
+        if kept.iter().any(|(_, _, _, k)| k == &key) {
+            continue;
+        }
+        kept.push((path, source, detail, key));
     }
     // 上次扫描存在、但本次不再由配置/环境/默认路径报告的目录（如修改过缓存位置后的旧目录），
     // 仍然占磁盘，重新统计并标注为「之前的位置」；被已收目录覆盖或不复存在的跳过。
     for prev in previous {
         let path = normalize_path(Path::new(prev));
         let key = normalize_key(&path);
-        if !path.is_dir() || kept.iter().any(|(_, _, k)| same_or_within(&key, k)) {
+        if !path.is_dir() || kept.iter().any(|(_, _, _, k)| same_or_within(&key, k)) {
             continue;
         }
-        kept.push((path, "之前的位置", key));
+        kept.push((path, "之前的位置", None, key));
     }
 
-    let keys: Vec<String> = kept.iter().map(|(_, _, key)| key.clone()).collect();
+    let keys: Vec<String> = kept.iter().map(|(_, _, _, key)| key.clone()).collect();
     let mut dirs = Vec::new();
-    for (path, source, key) in kept {
+    for (path, source, detail, key) in kept {
         // 同目标中位于本目录之下的其他条目会单独统计，此处排除其子树。
         let exclude: Vec<String> = keys
             .iter()
@@ -809,6 +1077,7 @@ fn resolve_target(spec: &TargetSpec, previous: &[String]) -> CacheTarget {
         dirs.push(CacheDir {
             path: path.to_string_lossy().into_owned(),
             source,
+            source_detail: detail,
             exists,
             size_bytes,
             file_count,
@@ -817,21 +1086,17 @@ fn resolve_target(spec: &TargetSpec, previous: &[String]) -> CacheTarget {
         });
     }
     let total_bytes = dirs.iter().map(|dir| dir.size_bytes).sum();
-    let (can_set, set_command, relocate_guide) = match &spec.relocate {
-        Some(Relocate::Command(setter)) => (true, Some(setter.label), None),
-        Some(Relocate::Env { var, note }) => (false, None, Some(env_guide(var, note))),
-        Some(Relocate::Guide(text)) => (false, None, Some((*text).to_string())),
-        None => (false, None, None),
-    };
     CacheTarget {
-        id: spec.id,
-        name: spec.name,
-        category: spec.category,
+        id,
+        name,
+        category,
         dirs,
         total_bytes,
         can_set,
         set_command,
         relocate_guide,
+        custom,
+        error: None,
     }
 }
 
@@ -896,16 +1161,32 @@ fn union_total(targets: &[CacheTarget]) -> u64 {
     contributions.into_iter().map(|(_, bytes)| bytes).sum()
 }
 
-fn scan(previous: &HashMap<String, Vec<String>>) -> Result<ScanResult, String> {
+fn scan(
+    previous: &HashMap<String, Vec<String>>,
+    custom: &[CustomTarget],
+    skip: &[String],
+) -> Result<ScanResult, String> {
     // 每个工具独立线程：命令探测与目录遍历互不等候。
     std::thread::scope(|scope| {
         let handles: Vec<_> = SPECS
             .iter()
+            .filter(|spec| !skip.iter().any(|id| id == spec.id))
             .map(|spec| {
                 scope.spawn(|| {
                     resolve_target(spec, previous.get(spec.id).map(Vec::as_slice).unwrap_or(&[]))
                 })
             })
+            .chain(custom.iter().map(|target| {
+                scope.spawn(|| {
+                    resolve_custom_target(
+                        target,
+                        previous
+                            .get(target.id.as_str())
+                            .map(Vec::as_slice)
+                            .unwrap_or(&[]),
+                    )
+                })
+            }))
             .collect();
         let targets: Vec<CacheTarget> = handles
             .into_iter()
@@ -925,32 +1206,80 @@ fn scan(previous: &HashMap<String, Vec<String>>) -> Result<ScanResult, String> {
 #[tauri::command]
 pub async fn scan_dev_caches(
     previous: Option<HashMap<String, Vec<String>>>,
+    custom: Option<Vec<CustomTarget>>,
+    skip: Option<Vec<String>>,
 ) -> Result<ScanResult, String> {
     // 目录遍历是阻塞 IO，放到阻塞线程池执行以免卡住桌面 UI。
-    tauri::async_runtime::spawn_blocking(move || scan(&previous.unwrap_or_default()))
-        .await
-        .map_err(|error| format!("缓存扫描任务失败：{error}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        scan(
+            &previous.unwrap_or_default(),
+            &custom.unwrap_or_default(),
+            &skip.unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|error| format!("缓存扫描任务失败：{error}"))?
+}
+
+// 设置页列出每个内置目标的获取方式与修改方式；纯展示，不涉及扫描。
+#[tauri::command]
+pub fn list_cache_targets() -> Vec<CacheTargetInfo> {
+    SPECS
+        .iter()
+        .map(|spec| {
+            let mut get_commands: Vec<String> = spec
+                .probes
+                .iter()
+                .map(|probe| format!("{} {}", probe.program, probe.args.join(" ")))
+                .collect();
+            get_commands.extend(spec.env_dirs.iter().map(|(var, segments)| {
+                if segments.is_empty() {
+                    format!("环境变量 {var}")
+                } else {
+                    format!("环境变量 {var}（追加 {}）", segments.join("/"))
+                }
+            }));
+            get_commands.push("平台默认路径".to_string());
+            let (_, set_command, relocate_guide) = relocate_fields(&spec.relocate);
+            CacheTargetInfo {
+                id: spec.id,
+                name: spec.name,
+                category: spec.category,
+                get_commands,
+                set_command,
+                relocate_guide,
+            }
+        })
+        .collect()
 }
 
 // 通过工具自身的 CLI 把缓存目录写入其全局配置；只改动配置，不迁移或删除旧目录内容。
-fn apply_cache_dir(id: &str, path: &str) -> Result<(), String> {
-    let spec = SPECS
-        .iter()
-        .find(|spec| spec.id == id)
-        .ok_or("未知的缓存目标。")?;
-    let setter = match &spec.relocate {
-        Some(Relocate::Command(setter)) => setter,
-        _ => return Err("该工具不支持通过命令修改缓存目录。".into()),
-    };
+// 内置目标查 SPECS；自定义目标由前端随请求带来设置中保存的 setCommand。
+fn apply_cache_dir(id: &str, path: &str, set_command: Option<&str>) -> Result<(), String> {
+    let (programs, template): (Vec<String>, Vec<String>) =
+        match SPECS.iter().find(|spec| spec.id == id) {
+            Some(spec) => match &spec.relocate {
+                Some(Relocate::Command(setter)) => (
+                    setter.programs.iter().map(|program| (*program).to_string()).collect(),
+                    setter.args.iter().map(|arg| (*arg).to_string()).collect(),
+                ),
+                _ => return Err("该工具不支持通过命令修改缓存目录。".into()),
+            },
+            None => {
+                let command = non_empty(set_command).ok_or("未知的缓存目标。")?;
+                let mut parts = split_command(command).into_iter();
+                let program = parts.next().ok_or("自定义修改命令为空。")?;
+                (vec![program], parts.collect())
+            }
+        };
     let raw = path.trim();
     if raw.is_empty() || !Path::new(raw).is_absolute() {
         return Err("请输入新缓存目录的绝对路径。".into());
     }
     fs::create_dir_all(raw).map_err(|error| format!("无法创建目录 {raw}：{error}"))?;
 
-    let has_placeholder = setter.args.iter().any(|arg| arg.contains("{path}"));
-    let mut args: Vec<String> = setter
-        .args
+    let has_placeholder = template.iter().any(|arg| arg.contains("{path}"));
+    let mut args: Vec<String> = template
         .iter()
         .map(|arg| arg.replace("{path}", raw))
         .collect();
@@ -960,7 +1289,7 @@ fn apply_cache_dir(id: &str, path: &str) -> Result<(), String> {
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
     let mut failure: Option<String> = None;
-    for program in setter.programs {
+    for program in &programs {
         for name in program_names(program) {
             match run_capture(&name, &arg_refs) {
                 Ok(_) => return Ok(()),
@@ -972,16 +1301,17 @@ fn apply_cache_dir(id: &str, path: &str) -> Result<(), String> {
         }
     }
     Err(failure.unwrap_or_else(|| {
-        format!(
-            "未找到 {} 命令行，无法执行配置。",
-            setter.programs.join(" / ")
-        )
+        format!("未找到 {} 命令行，无法执行配置。", programs.join(" / "))
     }))
 }
 
 #[tauri::command]
-pub async fn set_cache_dir(id: String, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || apply_cache_dir(&id, &path))
+pub async fn set_cache_dir(
+    id: String,
+    path: String,
+    set_command: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || apply_cache_dir(&id, &path, set_command.as_deref()))
         .await
         .map_err(|error| format!("修改缓存目录任务失败：{error}"))?
 }
@@ -1007,7 +1337,7 @@ mod tests {
 
     #[test]
     fn scan_returns_all_targets() {
-        let targets = scan(&HashMap::new()).unwrap().targets;
+        let targets = scan(&HashMap::new(), &[], &[]).unwrap().targets;
         assert_eq!(targets.len(), SPECS.len());
         for target in &targets {
             assert!(!target.dirs.is_empty(), "{} 应至少给出一个候选目录", target.id);
@@ -1025,12 +1355,109 @@ mod tests {
     }
 
     #[test]
+    fn scan_applies_skip_and_custom() {
+        let dir_path = std::env::temp_dir().join(format!("toolbox-custom-{}", std::process::id()));
+        fs::create_dir_all(&dir_path).unwrap();
+        let custom = vec![CustomTarget {
+            id: "custom-test".to_string(),
+            name: "自定义缓存".to_string(),
+            get_command: None,
+            set_command: None,
+            dirs: vec![dir_path.to_string_lossy().into_owned()],
+        }];
+        let result = scan(&HashMap::new(), &custom, &["npm".to_string()]).unwrap();
+        fs::remove_dir_all(&dir_path).unwrap();
+        // 内置目标减一（跳过 npm）加一（自定义目标）。
+        assert_eq!(result.targets.len(), SPECS.len());
+        assert!(result.targets.iter().all(|target| target.id != "npm"));
+        let target = result
+            .targets
+            .iter()
+            .find(|target| target.id == "custom-test")
+            .expect("自定义目标应出现在结果中");
+        assert!(target.custom);
+        assert_eq!(target.dirs.len(), 1);
+        assert!(target.dirs[0].exists);
+        assert_eq!(target.dirs[0].source, "自定义目录");
+    }
+
+    #[test]
+    fn custom_target_surfaces_errors() {
+        let custom = vec![
+            // 获取命令的程序不存在：错误应展示在目标上，而不是静默消失。
+            CustomTarget {
+                id: "c-err".to_string(),
+                name: "失败目标".to_string(),
+                get_command: Some("definitely-missing-tool get dir".to_string()),
+                set_command: None,
+                dirs: vec![],
+            },
+            // 相对路径的固定目录同样要报出来。
+            CustomTarget {
+                id: "c-rel".to_string(),
+                name: "相对路径".to_string(),
+                get_command: None,
+                set_command: None,
+                dirs: vec!["relative/dir".to_string()],
+            },
+        ];
+        let result = scan(&HashMap::new(), &custom, &[]).unwrap();
+        let probe_error = result
+            .targets
+            .iter()
+            .find(|target| target.id == "c-err")
+            .and_then(|target| target.error.as_deref())
+            .expect("探测失败应记录错误");
+        assert!(probe_error.contains("未找到"), "意外错误：{probe_error}");
+        let dir_error = result
+            .targets
+            .iter()
+            .find(|target| target.id == "c-rel")
+            .and_then(|target| target.error.as_deref())
+            .expect("非绝对路径应记录错误");
+        assert!(dir_error.contains("不是绝对路径"), "意外错误：{dir_error}");
+    }
+
+    #[test]
+    fn split_command_respects_quotes() {
+        assert_eq!(
+            split_command("npm config get cache"),
+            ["npm", "config", "get", "cache"]
+        );
+        assert_eq!(
+            split_command("\"C:\\Program Files\\tool.exe\" cache dir"),
+            ["C:\\Program Files\\tool.exe", "cache", "dir"]
+        );
+        assert_eq!(
+            split_command("tool --name 'a b'"),
+            ["tool", "--name", "a b"]
+        );
+        // 引号包裹的空参数要保留为空参数，丢弃会让后续参数错位。
+        assert_eq!(
+            split_command("tool --name \"\" --cache {path}"),
+            ["tool", "--name", "", "--cache", "{path}"]
+        );
+        assert_eq!(split_command("tool '' x"), ["tool", "", "x"]);
+        assert!(split_command("   ").is_empty());
+        // 未闭合引号：剩余内容作为一个参数。
+        assert_eq!(split_command("tool \"abc"), ["tool", "abc"]);
+    }
+
+    #[test]
     fn set_cache_dir_validates_input() {
-        assert!(apply_cache_dir("missing", "C:\\x").is_err());
-        assert!(apply_cache_dir("npm", "relative/path").is_err());
-        assert!(apply_cache_dir("npm", "").is_err());
+        assert!(apply_cache_dir("missing", "C:\\x", None).is_err());
+        assert!(apply_cache_dir("npm", "relative/path", None).is_err());
+        assert!(apply_cache_dir("npm", "", None).is_err());
         // deno 只能通过 DENO_DIR 环境变量调整，没有 CLI 配置命令。
-        assert!(apply_cache_dir("deno", "C:\\x").is_err());
+        assert!(apply_cache_dir("deno", "C:\\x", None).is_err());
+        // 自定义目标：未提供修改命令或命令为空都应报错。
+        assert!(apply_cache_dir("custom-x", "C:\\x", None).is_err());
+        assert!(apply_cache_dir("custom-x", "C:\\x", Some("  ")).is_err());
+        // 自定义命令存在但程序不存在：报「未找到命令行」而不是未知目标。
+        let error =
+            apply_cache_dir("custom-x", "C:\\x", Some("definitely-missing-tool set {path}"))
+                .unwrap_err();
+        assert!(error.contains("未找到"), "意外错误：{error}");
     }
 
     // 真实执行 npm config set 验证整条链路（.cmd shim → 写配置 → 探测生效）。
@@ -1064,7 +1491,7 @@ mod tests {
         let _restore = Restore(npmrc, backup);
 
         let target = std::env::temp_dir().join(format!("toolbox-npm-cache-{}", std::process::id()));
-        apply_cache_dir("npm", &target.to_string_lossy()).unwrap();
+        apply_cache_dir("npm", &target.to_string_lossy(), None).unwrap();
         let probed = probe_dir(&probe).expect("修改后 npm config get cache 应返回路径");
         assert_eq!(normalize_key(&probed), normalize_key(&target));
         let _ = fs::remove_dir_all(&target);
@@ -1074,6 +1501,7 @@ mod tests {
         CacheDir {
             path: path.to_string(),
             source: "测试",
+            source_detail: None,
             // size 为 0 视为不存在，不参与合计。
             exists: size > 0,
             size_bytes: size,
@@ -1083,16 +1511,18 @@ mod tests {
         }
     }
 
-    fn target(id: &'static str, dirs: Vec<CacheDir>) -> CacheTarget {
+    fn target(id: &str, dirs: Vec<CacheDir>) -> CacheTarget {
         CacheTarget {
-            id,
-            name: id,
-            category: "",
+            id: id.to_string(),
+            name: id.to_string(),
+            category: String::new(),
             total_bytes: dirs.iter().map(|d| d.size_bytes).sum(),
             dirs,
             can_set: false,
             set_command: None,
             relocate_guide: None,
+            custom: false,
+            error: None,
         }
     }
 

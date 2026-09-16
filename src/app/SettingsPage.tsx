@@ -1,6 +1,6 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { defaultPreferences, type Preferences } from "./preferences";
-import { modules } from "./modules";
+import { applyModuleOrder } from "./modules";
 import { SegmentedField } from "../shared/SegmentedField";
 
 interface SettingsPageProps {
@@ -8,10 +8,18 @@ interface SettingsPageProps {
   onChange: (preferences: Preferences) => void;
 }
 
-// 声明了 settingsComponent 的模块在设置页获得一个独立分区，配置内容由模块自己实现。
-const settingsModules = modules.filter((module) => module.settingsComponent);
-
 export default function SettingsPage({ preferences, onChange }: SettingsPageProps) {
+  const orderedModules = applyModuleOrder(preferences.moduleOrder);
+  // 声明了 settingsComponent 的模块在设置页获得一个独立分区，配置内容由模块自己实现。
+  const settingsModules = orderedModules.filter((module) => module.settingsComponent);
+
+  function moveModule(index: number, delta: number) {
+    const order = orderedModules.map((module) => module.id);
+    const target = index + delta;
+    [order[index], order[target]] = [order[target], order[index]];
+    onChange({ ...preferences, moduleOrder: order });
+  }
+
   return (
     <section className="settings-page">
       <h1>设置</h1>
@@ -49,6 +57,40 @@ export default function SettingsPage({ preferences, onChange }: SettingsPageProp
         ]}
         onChange={(fontSize) => onChange({ ...preferences, fontSize })}
       />
+      <div className="ui-field">
+        <span id="module-order-label">工具排序</span>
+        <ul className="settings-order" aria-labelledby="module-order-label">
+          {orderedModules.map((module, index) => (
+            <li key={module.id}>
+              <span className="settings-order-name">
+                <module.icon size={16} aria-hidden="true" />
+                {module.name}
+                <small>{module.category ?? "工具"}</small>
+              </span>
+              <span className="ui-actions">
+                <button
+                  className="ui-button"
+                  type="button"
+                  disabled={index === 0}
+                  aria-label={`上移 ${module.name}`}
+                  onClick={() => moveModule(index, -1)}
+                >
+                  上移
+                </button>
+                <button
+                  className="ui-button"
+                  type="button"
+                  disabled={index === orderedModules.length - 1}
+                  aria-label={`下移 ${module.name}`}
+                  onClick={() => moveModule(index, 1)}
+                >
+                  下移
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
       <div className="ui-actions">
         <button className="ui-button" type="button" onClick={() => onChange(defaultPreferences)}>
           恢复默认

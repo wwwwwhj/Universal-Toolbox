@@ -19,7 +19,7 @@ try {
     assert.ok(renderToStaticMarkup(createElement(module.component)).includes(`<h1>${module.name}</h1>`));
   }
   for (const hash of ["", "#", "#/"]) assert.equal(resolveModule(hash), modules[0]);
-  for (const hash of ["#/missing", "#/git/extra", "#/%broken"]) assert.equal(resolveModule(hash), undefined);
+  for (const hash of ["#/missing", "#/ports/extra", "#/%broken"]) assert.equal(resolveModule(hash), undefined);
   assert.equal((shell.match(/aria-current="page"/g) || []).length, 1);
   const { groupPortOwners } = await server.ssrLoadModule("/src/modules/ports/PortsPage.tsx");
   const owner = { pid: 20944, port: 3000, protocol: "TCP", address: "[::]", remoteAddress: null, state: "LISTENING", startedAt: "123" };

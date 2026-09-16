@@ -48,10 +48,9 @@ src-tauri/src/modules/<module>/
 例如：
 
 ```text
-src/modules/git/
-src/modules/image/
-src/modules/inventory/
 src/modules/snake/
+src/modules/ports/
+src/modules/cache/
 ```
 
 一个模块应尽量拥有自己的：
@@ -177,14 +176,11 @@ Module Registry 是应用内部的模块清单，不是插件系统。
 Snake
 → 前端即可
 
-Git
-→ 前端 UI + Tauri/Rust Git 能力
+端口管理 / 开发缓存管理
+→ 前端 UI + Tauri/Rust 系统能力
 
-图片批处理
-→ 前端 UI + Rust 图片处理
-
-库存
-→ 前端 UI + 持久化
+模块设置（如端口列表偏好）
+→ 前端状态 + localStorage 持久化
 ```
 
 根据实际需求判断，不要求所有模块使用相同结构。
