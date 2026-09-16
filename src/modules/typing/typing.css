@@ -1,0 +1,217 @@
+/* 打字模块布局；控件、配色与动效时值沿用全局 UI 规范。 */
+/* --type-heat（0–1）由页面按最近几秒的打字速度写入，驱动动效强度。 */
+
+.typing-btn { display: inline-flex; align-items: center; gap: var(--ui-space-2); }
+.typing-btn svg { flex-shrink: 0; }
+.typing-check { display: inline-flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-sm); }
+
+/* 打字区整体作为居中单列：统计、文本、键盘与结果都在页面水平居中。 */
+.typing-surface { margin-top: var(--ui-space-4); display: flex; flex-direction: column; align-items: center; }
+
+.typing-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ui-space-2) var(--ui-space-5);
+  margin-bottom: var(--ui-space-4);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.typing-stats strong { color: var(--ui-text); font-family: var(--ui-mono); font-weight: 600; }
+
+.typing-prompt {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  font-family: var(--ui-mono);
+  font-size: 22px;
+  line-height: 1.9;
+  letter-spacing: 0.02em;
+}
+/* 词作为换行单位，字符保持在词内不断开。 */
+.typing-word { display: inline-block; white-space: nowrap; }
+.typing-char { display: inline-block; position: relative; border-radius: 3px; }
+.typing-char--pending { color: var(--ui-muted); }
+.typing-char--correct { color: var(--ui-text); }
+.typing-char--error { color: var(--ui-danger); background: var(--ui-danger-bg); }
+.typing-char--space { min-width: 0.45em; }
+.typing-char--space.typing-char--error { box-shadow: inset 0 -2px 0 var(--ui-danger); }
+
+.typing-caret {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ui-accent);
+  transition: transform 90ms ease-out, height 90ms ease-out;
+  pointer-events: none;
+}
+
+.typing-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  margin: -2px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ui-accent), var(--ui-danger) calc(var(--type-heat, 0) * 55%));
+  animation: typing-particle 620ms ease-out forwards;
+  pointer-events: none;
+}
+@keyframes typing-particle {
+  to { transform: translate(var(--dx, 0px), var(--dy, -24px)) scale(0.2); opacity: 0; }
+}
+
+/* 脉冲：打对的字符回弹，速度越快幅度越大。 */
+.typing-fx-pulse .typing-char--correct { animation: typing-pop 170ms ease-out; }
+@keyframes typing-pop {
+  40% { transform: scale(calc(1.08 + var(--type-heat, 0) * 0.35)); color: var(--ui-accent); }
+}
+
+/* 热力辉光：光标与按下的键随速度由蓝转红、辉光增强。 */
+.typing-fx-glow .typing-caret {
+  background: color-mix(in srgb, var(--ui-accent), var(--ui-danger) calc(var(--type-heat, 0) * 65%));
+  box-shadow: 0 0 calc(4px + var(--type-heat, 0) * 14px)
+    color-mix(in srgb, var(--ui-accent), var(--ui-danger) calc(var(--type-heat, 0) * 65%));
+}
+.typing-fx-glow .typing-key--held,
+.typing-fx-glow .typing-key--next {
+  border-color: color-mix(in srgb, var(--ui-accent), var(--ui-danger) calc(var(--type-heat, 0) * 60%));
+  box-shadow: 0 0 calc(2px + var(--type-heat, 0) * 12px)
+    color-mix(in srgb, var(--ui-accent), var(--ui-danger) calc(var(--type-heat, 0) * 55%));
+}
+
+/* 单词模式：一次一个大号单词，三列网格让当前词相对页面精确居中，下一词淡化挂在右列。 */
+.typing-prompt--word {
+  max-width: none;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  font-size: 34px;
+  line-height: 1.6;
+}
+.typing-prompt--word .typing-word { grid-column: 2; justify-self: center; }
+.typing-next { grid-column: 3; justify-self: start; margin-left: var(--ui-space-5); color: var(--ui-muted); font-size: 0.5em; letter-spacing: 0.04em; }
+.typing-end { margin-left: auto; min-height: 28px; padding: var(--ui-space-1) var(--ui-space-2); font-size: var(--ui-text-xs); box-shadow: none; }
+
+.typing-hint { margin: var(--ui-space-2) 0 0; font-size: var(--ui-text-xs); color: var(--ui-muted); text-align: center; }
+
+/* 虚拟键盘：只读展示物理按键状态；宽度由设置中的 max-width 控制并水平居中，键高与字号随 --kb-scale 缩放。 */
+.typing-keyboard { width: 100%; margin: var(--ui-space-4) auto 0; display: grid; gap: 6px; user-select: none; }
+.typing-key-row { display: flex; gap: 6px; }
+.typing-key {
+  flex: var(--u, 1) 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: max(30px, calc(42px * var(--kb-scale, 1)));
+  padding: 0 var(--ui-space-1);
+  border: 1px solid var(--ui-border);
+  border-bottom-width: 2px;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-elevated);
+  color: var(--ui-muted);
+  font-family: var(--ui-mono);
+  font-size: max(10px, calc(var(--ui-text-xs) * var(--kb-scale, 1)));
+  white-space: nowrap;
+  box-shadow: var(--ui-shadow-sm);
+  transition: background-color var(--ui-motion), border-color var(--ui-motion), transform var(--ui-motion);
+}
+.typing-key--held {
+  transform: translateY(1px);
+  border-bottom-width: 1px;
+  background: var(--ui-selected);
+  color: var(--ui-text);
+}
+.typing-key--next { border-color: var(--ui-accent); color: var(--ui-accent); font-weight: 600; }
+.typing-key--ok { animation: typing-key-ok 300ms ease-out; }
+.typing-key--err { animation: typing-key-err 300ms ease-out; }
+@keyframes typing-key-ok {
+  0% { background: var(--ui-accent); border-color: var(--ui-accent); color: var(--ui-on-primary); }
+}
+@keyframes typing-key-err {
+  0% { background: var(--ui-danger); border-color: var(--ui-danger); color: var(--ui-on-danger); }
+}
+
+.typing-result {
+  width: 100%;
+  max-width: 720px;
+  margin-top: var(--ui-space-4);
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+}
+.typing-result h2 { margin-top: 0; }
+.typing-result p { margin: var(--ui-space-2) 0 var(--ui-space-3); }
+.typing-result strong { font-family: var(--ui-mono); }
+
+/* 词库管理弹窗：左列类目清单，右列预览或编辑器。 */
+.typing-lib-dialog { width: min(760px, calc(100vw - 2 * var(--ui-space-5))); max-width: none; }
+.typing-lib { display: grid; grid-template-columns: minmax(200px, 240px) minmax(0, 1fr); gap: var(--ui-space-4); margin-top: var(--ui-space-3); }
+.typing-lib-list { display: grid; gap: var(--ui-space-2); align-content: start; }
+.typing-lib-cats { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; max-height: 340px; overflow: auto; }
+.typing-lib-cats li { display: flex; align-items: center; gap: var(--ui-space-2); }
+.typing-lib-cats input[type="checkbox"] { flex-shrink: 0; }
+.typing-lib-cat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--ui-text);
+  font: inherit;
+  font-size: var(--ui-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--ui-motion);
+}
+.typing-lib-cat small { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.typing-lib-cat:hover { background: var(--ui-hover); }
+.typing-lib-cat:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.typing-lib-cat[aria-current="true"] { background: var(--ui-selected); font-weight: 600; }
+.typing-lib-editor { min-width: 0; }
+.typing-lib-editor .ui-field { margin-bottom: var(--ui-space-3); }
+.typing-lib-editor h3 { margin: 0 0 var(--ui-space-2); font-size: var(--ui-text-base); }
+.typing-lib-editor h3 small { color: var(--ui-muted); font-weight: 400; }
+.typing-lib-text { min-height: 190px; font-family: var(--ui-mono); font-size: var(--ui-text-sm); resize: vertical; }
+.typing-lib-extras { min-height: 110px; }
+.typing-lib-preview {
+  margin: var(--ui-space-2) 0;
+  padding: var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+  overflow-wrap: anywhere;
+}
+.typing-lib-actions { margin-top: var(--ui-space-4); justify-content: flex-end; }
+
+/* 键盘宽度自由调节：滑杆 + 精确数值 + 快捷档位。 */
+.typing-width { display: flex; align-items: center; gap: var(--ui-space-3); max-width: 460px; }
+.typing-width input[type="range"] { flex: 1; min-width: 0; }
+.typing-width-num { width: 96px; }
+.typing-width-presets { margin-top: var(--ui-space-2); }
+
+@media (max-width: 560px) {
+  .typing-lib { grid-template-columns: 1fr; }
+  .typing-lib-cats { max-height: 160px; }
+  .typing-prompt { font-size: 18px; }
+  .typing-key { height: 34px; font-size: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-caret, .typing-key { transition: none; }
+  .typing-fx-pulse .typing-char--correct,
+  .typing-particle,
+  .typing-key--ok,
+  .typing-key--err { animation: none; }
+  .typing-particle { opacity: 0; }
+}

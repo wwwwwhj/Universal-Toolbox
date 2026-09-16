@@ -75,6 +75,9 @@ a { color: inherit; text-underline-offset: 3px; }
 .settings-panel { min-width: 0; }
 .settings-panel > h2 { margin: 0; }
 .main-content { flex: 1; min-width: 0; padding: var(--ui-space-6); overflow: auto; overflow-wrap: anywhere; }
+/* 点击页面任意处会聚焦带 tabindex 的 main，其后的按键会让浏览器给整个主区域画上焦点环
+   （在侧栏边缘显示为一条蓝色竖线）。主区域不是可交互控件，不显示焦点环；跳转链接自身的焦点样式不受影响。 */
+.main-content:focus { outline: none; }
 .main-content h1 { margin: 0 0 var(--ui-space-2); font-size: var(--ui-text-title); font-weight: 600; line-height: 1.4; letter-spacing: -0.02em; text-wrap: balance; }
 .main-content h2 { font-size: var(--ui-text-lg); font-weight: 600; letter-spacing: -0.01em; }
 .main-content p { margin: var(--ui-space-3) 0; color: var(--ui-muted); line-height: 1.6; }
