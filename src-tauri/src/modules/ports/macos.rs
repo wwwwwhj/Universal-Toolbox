@@ -1,3 +1,5 @@
+use crate::modules::ports::PortOwner;
+
 // lsof 使用 NUL 分隔字段，不能按空格或换行拆路径（目录可以包含这些字符）。
 // 字段规范：https://lsof.readthedocs.io/en/stable/manpage/#output-for-other-programs
 #[derive(Default, Debug)]
@@ -113,13 +115,45 @@ fn format_utc(seconds: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
 }
 
+// 与 Windows 端 ports.ps1 的预设口径一致：按进程名精确匹配。
+fn matches_preset(preset: &str, name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    match preset {
+        "nodejs" => name == "node",
+        "java" => name == "java" || name == "javaw",
+        "python" => name
+            .strip_prefix("python")
+            .map(|rest| rest.strip_prefix('w').unwrap_or(rest))
+            .is_some_and(|rest| rest.bytes().all(|b| b.is_ascii_digit() || b == b'.')),
+        _ => false,
+    }
+}
+
+fn matches_filter(row: &PortOwner, name: Option<&str>, preset: Option<&str>) -> bool {
+    if let Some(preset) = preset {
+        return matches_preset(preset, &row.name);
+    }
+    let Some(text) = name else {
+        return true;
+    };
+    let text = text.to_lowercase();
+    [
+        Some(row.name.as_str()),
+        row.command_line.as_deref(),
+        row.path.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_lowercase().contains(&text))
+}
+
 #[cfg(target_os = "macos")]
-pub(super) use native::{list, stop};
+pub(super) use native::{list, owner_details, stop};
 
 #[cfg(target_os = "macos")]
 mod native {
     use super::*;
-    use crate::modules::ports::{validate_stop, PortOwner};
+    use crate::modules::ports::{validate_stop, PortOwnerDetails};
     use std::{collections::HashMap, ffi::c_void, process::Command, time::Duration};
 
     // Darwin proc_bsdinfo ABI，字段宽度在 Intel/Apple Silicon 上一致。
@@ -367,7 +401,33 @@ mod native {
         row
     }
 
-    pub(crate) fn list(port: Option<u16>) -> Result<Vec<PortOwner>, String> {
+    pub(crate) fn owner_details(pid: u32, started_at: &str) -> Result<PortOwnerDetails, String> {
+        let info = process_info(pid)?;
+        if identity(&info) != started_at {
+            return Err("进程已变化，请刷新。".into());
+        }
+        let bytes = if info.name[0] == 0 {
+            &info.command[..]
+        } else {
+            &info.name[..]
+        };
+        let name = String::from_utf8_lossy(bytes).trim_end_matches('\0').to_string();
+        let ctx = load_context(&[pid]);
+        let row = details(pid, &name, &ctx);
+        Ok(PortOwnerDetails {
+            command_line: row.command_line,
+            parent_pid: row.parent_pid,
+            parent_name: row.parent_name,
+            services: None,
+            warnings: row.details_warnings,
+        })
+    }
+
+    pub(crate) fn list(
+        port: Option<u16>,
+        name: Option<&str>,
+        preset: Option<&str>,
+    ) -> Result<Vec<PortOwner>, String> {
         if port == Some(0) {
             return Err("端口必须在 1–65535 之间。".into());
         }
@@ -424,6 +484,7 @@ mod native {
                 && a.address == b.address
                 && a.state == b.state
         });
+        rows.retain(|row| matches_filter(row, name, preset));
         Ok(rows)
     }
 
@@ -495,6 +556,31 @@ mod tests {
         assert!(parse_files("无效\0").is_err());
     }
 
+    #[test]
+    fn name_filters_match_frontend_presets() {
+        let mut row = PortOwner::default();
+        row.name = "node".into();
+        assert!(matches_filter(&row, None, Some("nodejs")));
+        assert!(!matches_filter(&row, None, Some("java")));
+        assert!(!matches_filter(&row, None, Some("unknown")));
+        row.name = "Python3.11".into();
+        assert!(matches_filter(&row, None, Some("python")));
+        row.name = "pythonw".into();
+        assert!(matches_filter(&row, None, Some("python")));
+        row.name = "pythonista".into();
+        assert!(!matches_filter(&row, None, Some("python")));
+        assert!(matches_filter(&row, None, None));
+        // 自由文本同时匹配进程名、启动命令和程序路径，大小写不敏感。
+        row.name = "node".into();
+        row.command_line = Some("node /srv/Vite Site/server.js".into());
+        row.path = Some("/usr/local/bin/node".into());
+        assert!(matches_filter(&row, Some("vite site"), None));
+        assert!(matches_filter(&row, Some("BIN/NODE"), None));
+        assert!(!matches_filter(&row, Some("redis"), None));
+        // preset 存在时优先于自由文本。
+        assert!(!matches_filter(&row, Some("node"), Some("java")));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn listener_child() {
@@ -546,7 +632,7 @@ mod tests {
                     .map(|port| port.parse::<u16>().unwrap())
             })
             .expect("测试子进程应返回端口");
-        let rows = list(Some(port)).unwrap();
+        let rows = list(Some(port), None, None).unwrap();
         let owned: Vec<_> = rows.iter().filter(|row| row.pid == child.0.id()).collect();
         assert!(owned.iter().any(|row| row.protocol == "TCP"));
         assert!(owned.iter().any(|row| row.protocol == "UDP"));
@@ -560,7 +646,7 @@ mod tests {
         assert!(stop(port, owner.pid, "1").is_err());
         assert!(child.0.try_wait().unwrap().is_none());
         stop(port, owner.pid, owner.started_at.as_deref().unwrap()).unwrap();
-        assert!(list(Some(port))
+        assert!(list(Some(port), None, None)
             .unwrap()
             .iter()
             .all(|row| row.pid != owner.pid));

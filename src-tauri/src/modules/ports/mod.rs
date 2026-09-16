@@ -5,11 +5,16 @@ mod macos;
 #[cfg(target_os = "macos")]
 use macos::{list, stop};
 
+#[cfg(target_os = "macos")]
+fn details(pid: u32, started_at: &str) -> Result<PortOwnerDetails, String> {
+    macos::owner_details(pid, started_at)
+}
+
 fn windows_platform() -> String {
     "windows".into()
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortOwner {
     #[serde(default = "windows_platform")]
@@ -42,6 +47,17 @@ pub struct ProcessService {
     state: String,
 }
 
+/// 打开详情时才读取的字段；列表查询不附带这些需要 CIM 的数据。
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortOwnerDetails {
+    command_line: Option<String>,
+    parent_pid: Option<u32>,
+    parent_name: Option<String>,
+    services: Option<Vec<ProcessService>>,
+    warnings: Vec<String>,
+}
+
 #[cfg(windows)]
 fn run_script(arguments: &str) -> Result<String, String> {
     use std::{os::windows::process::CommandExt, process::Command};
@@ -52,8 +68,8 @@ fn run_script(arguments: &str) -> Result<String, String> {
     let output = Command::new(executable)
         .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
         .arg(format!(
-            "{arguments}\n$workingDirectorySource = @'\n{}\n'@\n{}",
-            include_str!("working-directory.cs"),
+            "{arguments}\n$processInfoSource = @'\n{}\n'@\n{}",
+            include_str!("process-info.cs"),
             include_str!("ports.ps1")
         ))
         .creation_flags(0x08000000)
@@ -69,7 +85,12 @@ fn run_script(arguments: &str) -> Result<String, String> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn list(_: Option<u16>) -> Result<Vec<PortOwner>, String> {
+fn list(_: Option<u16>, _: Option<&str>, _: Option<&str>) -> Result<Vec<PortOwner>, String> {
+    Err("端口管理目前仅支持 Windows 和 macOS。".into())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn details(_: u32, _: &str) -> Result<PortOwnerDetails, String> {
     Err("端口管理目前仅支持 Windows 和 macOS。".into())
 }
 
@@ -79,16 +100,38 @@ fn stop(_: u16, _: u32, _: &str) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn list(port: Option<u16>) -> Result<Vec<PortOwner>, String> {
+fn list(port: Option<u16>, name: Option<&str>, preset: Option<&str>) -> Result<Vec<PortOwner>, String> {
     if port == Some(0) {
         return Err("端口必须在 1–65535 之间。".into());
     }
+    // 搜索词进入 PowerShell 单引号字面量，字面量内唯一需要转义的是单引号本身。
+    let match_text = name.map_or("$null".into(), |name| {
+        format!("'{}'", name.replace('\'', "''"))
+    });
+    let match_preset = preset.map_or("$null".into(), |preset| format!("'{preset}'"));
     let output = run_script(&format!(
-        "$action = 'list'; $filterPort = {}; $appPid = {};",
+        "$action = 'list'; $filterPort = {}; $appPid = {}; $matchText = {match_text}; $matchPreset = {match_preset};",
         port.unwrap_or(0),
         std::process::id()
     ))?;
     serde_json::from_str(output.trim()).map_err(|error| format!("无法解析端口结果：{error}"))
+}
+
+#[cfg(windows)]
+fn details(pid: u32, started_at: &str) -> Result<PortOwnerDetails, String> {
+    if pid == 0 || pid > i32::MAX as u32 {
+        return Err("进程无效。".into());
+    }
+    if started_at.is_empty()
+        || started_at.len() > 19
+        || !started_at.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err("进程身份信息无效，请重新查询。".into());
+    }
+    let output = run_script(&format!(
+        "$action = 'details'; $targetPid = {pid}; $expectedStart = '{started_at}';"
+    ))?;
+    serde_json::from_str(output.trim()).map_err(|error| format!("无法解析进程详情：{error}"))
 }
 
 fn validate_stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
@@ -116,11 +159,41 @@ fn stop(port: u16, pid: u32, started_at: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn list_port_owners(port: Option<u16>) -> Result<Vec<PortOwner>, String> {
+pub async fn list_port_owners(
+    port: Option<u16>,
+    name: Option<String>,
+    preset: Option<String>,
+) -> Result<Vec<PortOwner>, String> {
+    if let Some(preset) = preset.as_deref() {
+        if !matches!(preset, "nodejs" | "java" | "python") {
+            return Err("无效的进程类型筛选。".into());
+        }
+    }
+    let name = match name {
+        Some(name)
+            if name.len() > 200
+                || name
+                    .chars()
+                    .any(|c| c == '\0' || c == '\r' || c == '\n') =>
+        {
+            return Err("进程名搜索内容无效。".into());
+        }
+        other => other.filter(|name| !name.is_empty()),
+    };
     // 系统查询放到阻塞线程，避免扫描端口时阻塞桌面 UI。
-    tauri::async_runtime::spawn_blocking(move || list(port))
+    tauri::async_runtime::spawn_blocking(move || list(port, name.as_deref(), preset.as_deref()))
         .await
         .map_err(|error| format!("端口查询任务失败：{error}"))?
+}
+
+#[tauri::command]
+pub async fn get_port_owner_details(
+    pid: u32,
+    started_at: String,
+) -> Result<PortOwnerDetails, String> {
+    tauri::async_runtime::spawn_blocking(move || details(pid, &started_at))
+        .await
+        .map_err(|error| format!("进程详情任务失败：{error}"))?
 }
 
 #[tauri::command]
@@ -182,7 +255,7 @@ mod tests {
             .read_line(&mut line)
             .unwrap();
         let port: u16 = line.trim().parse().expect("测试进程应输出随机监听端口");
-        let rows = list(Some(port)).unwrap();
+        let rows = list(Some(port), None, None).unwrap();
         let owned: Vec<_> = rows.iter().filter(|row| row.pid == child.0.id()).collect();
         assert!(owned
             .iter()
@@ -209,25 +282,43 @@ mod tests {
             .started_at_display
             .as_deref()
             .is_some_and(|value| value.contains('T')));
+        // 名称筛选在后端执行：按进程名应命中，按其它预设应排除。
+        assert!(list(Some(port), Some("powershell"), None)
+            .unwrap()
+            .iter()
+            .any(|row| row.pid == owner.pid));
+        assert!(list(Some(port), None, Some("java"))
+            .unwrap()
+            .iter()
+            .all(|row| row.pid != owner.pid));
+        assert!(list(Some(port), Some("不存在的长尾关键字xyz"), None)
+            .unwrap()
+            .iter()
+            .all(|row| row.pid != owner.pid));
+        // 列表不附带 CIM 详情，详情按需读取。
+        assert!(owner.command_line.is_none());
+        let detail = details(owner.pid, owner.started_at.as_deref().unwrap()).unwrap();
         // 受限环境可能禁止 CIM，必须明确降级；不能把查询失败伪装成空详情。
-        if owner.details_warnings.is_empty() {
-            assert!(owner
+        if detail.warnings.is_empty() {
+            assert!(detail
                 .command_line
                 .as_deref()
                 .is_some_and(|value| value.contains("TcpListener")));
-            assert_eq!(owner.parent_pid, Some(std::process::id()));
-            assert!(owner.parent_name.is_some());
-            assert!(owner
+            assert_eq!(detail.parent_pid, Some(std::process::id()));
+            assert!(detail.parent_name.is_some());
+            assert!(detail
                 .services
                 .as_ref()
                 .is_some_and(|services| services.is_empty()));
         } else {
-            assert!(owner
-                .details_warnings
-                .iter()
-                .all(|warning| !warning.is_empty()));
+            assert!(detail.warnings.iter().all(|warning| !warning.is_empty()));
         }
-        assert!(list(Some(0)).is_err());
+        assert!(details(0, owner.started_at.as_deref().unwrap()).is_err());
+        assert!(details(owner.pid, "1").is_err() || {
+            let detail = details(owner.pid, "1").unwrap();
+            detail.command_line.is_none() && !detail.warnings.is_empty()
+        });
+        assert!(list(Some(0), None, None).is_err());
         assert!(stop(port, 4, "1").is_err());
         assert!(stop(port, std::process::id(), "1").is_err());
         assert!(stop(port, owner.pid, "'; exit 0; '").is_err());
@@ -239,12 +330,12 @@ mod tests {
             stop(other_port, owner.pid, owner.started_at.as_deref().unwrap()).is_err(),
             "不能停止已不再占用所选端口的进程"
         );
-        assert!(list(None)
+        assert!(list(None, None, None)
             .unwrap()
             .iter()
             .any(|row| row.pid == owner.pid && row.port == port));
         stop(port, owner.pid, owner.started_at.as_deref().unwrap()).unwrap();
-        assert!(list(Some(port))
+        assert!(list(Some(port), None, None)
             .unwrap()
             .iter()
             .all(|row| row.pid != owner.pid));

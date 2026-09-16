@@ -30,122 +30,176 @@ function Get-PortOwners {
     }
 }
 
+# 进程信息组件按源码哈希缓存编译产物，避免每次查询都重新编译。
+# 返回 $null 表示可用；返回错误文本表示组件不可用。
+function Initialize-ProcessInfo {
+    $dll = $null
+    try {
+        $hash = [BitConverter]::ToString(
+            [Security.Cryptography.SHA256]::Create().ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes($processInfoSource))).Replace('-', '').Substring(0, 16)
+        $dir = Join-Path $env:LOCALAPPDATA 'Universal-Toolbox'
+        $dll = Join-Path $dir "process-info-$hash.dll"
+        if (Test-Path $dll) {
+            Add-Type -Path $dll -ErrorAction Stop
+        } else {
+            [IO.Directory]::CreateDirectory($dir) | Out-Null
+            Add-Type -TypeDefinition $processInfoSource -OutputAssembly $dll -ErrorAction Stop
+            Add-Type -Path $dll -ErrorAction Stop
+        }
+        return $null
+    } catch {
+        # 缓存目录不可写、并发编译或产物损坏时退回内存编译。
+        if ($null -ne $dll) { Remove-Item $dll -Force -ErrorAction SilentlyContinue }
+        try { Add-Type -TypeDefinition $processInfoSource -ErrorAction Stop; return $null }
+        catch { return "进程信息读取组件不可用：$($_.Exception.Message)" }
+    }
+}
+
 try {
     if ($action -eq 'list') {
-        $workingDirectoryError = $null
-        # C# 组件按源码哈希缓存编译产物，避免每次查询都重新编译。
-        $wdDll = $null
-        try {
-            $wdHash = [BitConverter]::ToString(
-                [Security.Cryptography.SHA256]::Create().ComputeHash(
-                    [Text.Encoding]::UTF8.GetBytes($workingDirectorySource))).Replace('-', '').Substring(0, 16)
-            $wdDir = Join-Path $env:LOCALAPPDATA 'Universal-Toolbox'
-            $wdDll = Join-Path $wdDir "working-directory-$wdHash.dll"
-            if (Test-Path $wdDll) {
-                Add-Type -Path $wdDll -ErrorAction Stop
-            } else {
-                [IO.Directory]::CreateDirectory($wdDir) | Out-Null
-                Add-Type -TypeDefinition $workingDirectorySource -OutputAssembly $wdDll -ErrorAction Stop
-                Add-Type -Path $wdDll -ErrorAction Stop
-            }
-        } catch {
-            # 缓存目录不可写、并发编译或产物损坏时退回内存编译。
-            if ($null -ne $wdDll) { Remove-Item $wdDll -Force -ErrorAction SilentlyContinue }
-            try { Add-Type -TypeDefinition $workingDirectorySource -ErrorAction Stop }
-            catch { $workingDirectoryError = "工作目录读取组件不可用：$($_.Exception.Message)" }
-        }
-        # CIM 信息批量读取一次，避免每条端口记录都触发一次系统查询。
-        # 详情权限不足不应影响基础端口查询，更不能把读取失败显示成“没有服务”。
-        $metadata = @{}
-        $services = @{}
-        $detailsWarnings = @()
-        try {
-            Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, Name, CommandLine, CreationDate -OperationTimeoutSec 10 | ForEach-Object {
-                $metadata[[int]$_.ProcessId] = $_
-            }
-        } catch { $detailsWarnings += "启动命令和父进程信息读取失败：$($_.Exception.Message)" }
-        $servicesAvailable = $true
-        try {
-            Get-CimInstance Win32_Service -Property ProcessId, Name, DisplayName, State -OperationTimeoutSec 10 | ForEach-Object {
-                if ($_.ProcessId -gt 0) {
-                    $services[[int]$_.ProcessId] += @([pscustomobject]@{ name = $_.Name; displayName = $_.DisplayName; state = $_.State })
-                }
-            }
-        } catch {
-            $servicesAvailable = $false
-            $detailsWarnings += "关联服务读取失败：$($_.Exception.Message)"
-        }
-        # 去重键必须包含 remoteAddress：同一本地端口到不同对端的连接是不同记录。
+        # 先解析端口占用：端口无占用时不做任何进程查询。
         $owners = @(Get-PortOwners | Sort-Object port, protocol, address, remoteAddress, pid, state -Unique)
-        # 进程对象一次批量获取，避免每个 PID 单独调用 Get-Process。
-        $procById = @{}
-        $ownerPids = @($owners | ForEach-Object { $_.pid } | Select-Object -Unique)
-        if ($ownerPids.Count -gt 0) {
-            Get-Process -Id $ownerPids -ErrorAction SilentlyContinue | ForEach-Object { $procById[[int]$_.Id] = $_ }
-        }
-        try {
+        if ($owners.Count -eq 0) { '[]' }
+        else {
+            $componentError = Initialize-ProcessInfo
+            $detailsWarnings = @()
+            if ($null -ne $componentError) { $detailsWarnings += $componentError }
+            # 进程快照一次读取全部进程的名称、创建时间与父进程。
+            $snapshot = @{}
+            if ($null -eq $componentError) {
+                try {
+                    foreach ($entry in [PortProcessInfo]::Snapshot().GetEnumerator()) {
+                        $snapshot[$entry.Key] = $entry.Value
+                    }
+                } catch {
+                    $detailsWarnings += "进程快照读取失败：$($_.Exception.Message)"
+                }
+            }
+            # 第一遍只取快照中的名称与启动时间，不做任何逐进程读取。
             $processes = @{}
-            $rows = @(foreach ($owner in $owners) {
-                if (-not $processes.ContainsKey($owner.pid)) {
-                    $info = @{ name = '未知进程'; path = $null; startedAt = $null; blockedReason = $null; startedAtDisplay = $null; workingDirectory = $null; workingDirectoryError = $workingDirectoryError }
-                    $process = $procById[$owner.pid]
-                    if ($null -eq $process) {
-                        $info.blockedReason = '进程已退出或无权读取，请刷新或以管理员身份运行。'
-                    } else {
-                        try {
-                            $info.name = $process.ProcessName
-                            $info.startedAt = $process.StartTime.ToUniversalTime().Ticks.ToString()
-                            $info.startedAtDisplay = $process.StartTime.ToUniversalTime().ToString('o')
-                            $info.path = $process.Path
-                        } catch {
-                            $info.blockedReason = '进程已退出或无权读取，请刷新或以管理员身份运行。'
-                        }
-                    }
-                    if ($null -eq $workingDirectoryError -and $null -ne $info.startedAt) {
-                        try { $info.workingDirectory = [PortWorkingDirectory]::Read($owner.pid, [long]$info.startedAt) }
-                        catch { $info.workingDirectoryError = "无法读取工作目录：$($_.Exception.GetBaseException().Message)" }
-                    }
-                    if ($owner.pid -le 4 -or $owner.pid -eq $appPid) {
-                        $info.blockedReason = '不允许停止系统进程或工具箱自身。'
-                    }
-                    $processes[$owner.pid] = $info
+            foreach ($owner in $owners) {
+                if ($processes.ContainsKey($owner.pid)) { continue }
+                $info = @{ name = '未知进程'; path = $null; startedAt = $null; blockedReason = $null; startedAtDisplay = $null; workingDirectory = $null; workingDirectoryError = $componentError; commandLine = $null; loaded = $false }
+                $identity = $snapshot[$owner.pid]
+                if ($null -eq $identity) {
+                    $info.blockedReason = '进程已退出或无权读取，请刷新或以管理员身份运行。'
+                } else {
+                    # 快照名带 .exe 后缀，去掉后与 ProcessName 口径一致。
+                    $info.name = $identity.Name -replace '\.exe$', ''
+                    $info.startedAt = $identity.CreateTicks.ToString()
+                    $info.startedAtDisplay = [DateTime]::new($identity.CreateTicks, [DateTimeKind]::Utc).ToString('o')
                 }
+                $processes[$owner.pid] = $info
+            }
+            # 预设只按进程名筛选：先过滤，再仅为匹配进程读取详情。
+            if ($matchPreset) {
+                $owners = @($owners | Where-Object {
+                    $name = $processes[$_.pid].name
+                    switch ($matchPreset) {
+                        'nodejs' { $name -eq 'node' }
+                        'java' { $name -in @('java', 'javaw') }
+                        'python' { $name -match '^pythonw?[\d.]*$' }
+                        default { $false }
+                    }
+                })
+            }
+            # 第二遍读取工作目录、映像路径和启动命令；同一 PID 只读一次。
+            foreach ($owner in $owners) {
                 $info = $processes[$owner.pid]
-                $meta = $metadata[$owner.pid]
-                # CIM 快照可能比端口快照更早，启动时间不一致时不能显示复用 PID 的旧详情。
-                $sameProcess = $null -ne $meta -and $null -ne $info.startedAt -and
-                    $null -ne $meta.CreationDate -and
-                    [Math]::Abs(($meta.CreationDate.ToUniversalTime() - [DateTime]::new([long]$info.startedAt, [DateTimeKind]::Utc)).TotalMilliseconds) -lt 1
-                $parent = $null
-                if ($sameProcess) {
-                    $parent = $metadata[[int]$meta.ParentProcessId]
-                    if ($null -ne $parent -and $parent.CreationDate -gt $meta.CreationDate) { $parent = $null }
+                if ($info.loaded -or $null -eq $info.startedAt) { continue }
+                $info.loaded = $true
+                try {
+                    $detail = [PortProcessInfo]::Read($owner.pid, [long]$info.startedAt)
+                    $info.workingDirectory = $detail.WorkingDirectory
+                    if ($null -ne $detail.WorkingDirectoryError) {
+                        $info.workingDirectoryError = "无法读取工作目录：$($detail.WorkingDirectoryError)"
+                    } else { $info.workingDirectoryError = $null }
+                    $info.path = $detail.ImagePath
+                    $info.commandLine = $detail.CommandLine
+                } catch {
+                    $info.blockedReason = '进程已退出或无权读取，请刷新或以管理员身份运行。'
+                    $info.workingDirectoryError = "无法读取工作目录：$($_.Exception.GetBaseException().Message)"
                 }
-                $processServices = $null
-                if ($servicesAvailable -and $sameProcess) {
-                    $processServices = @($services[$owner.pid] | Where-Object { $null -ne $_ })
+                if ($owner.pid -le 4 -or $owner.pid -eq $appPid) {
+                    $info.blockedReason = '不允许停止系统进程或工具箱自身。'
                 }
+            }
+            # 自由文本同时匹配进程名、启动命令和程序路径，否则搜脚本名会漏掉 node、java 这类宿主进程。
+            if ($matchText) {
+                $textPattern = [regex]::Escape($matchText)
+                $owners = @($owners | Where-Object {
+                    $info = $processes[$_.pid]
+                    $info.name -match $textPattern -or
+                        ($null -ne $info.path -and $info.path -match $textPattern) -or
+                        ($null -ne $info.commandLine -and $info.commandLine -match $textPattern)
+                })
+            }
+            # 启动命令、父进程和关联服务不随列表返回，打开详情时按需读取。
+            $rows = @(foreach ($owner in $owners) {
+                $info = $processes[$owner.pid]
                 [pscustomobject]@{
                     protocol = $owner.protocol; address = $owner.address; remoteAddress = $owner.remoteAddress; port = $owner.port
                     pid = $owner.pid; state = $owner.state; name = $info.name; path = $info.path
                     startedAt = $info.startedAt; blockedReason = $info.blockedReason
                     workingDirectory = $info.workingDirectory; workingDirectoryError = $info.workingDirectoryError
                     startedAtDisplay = $info.startedAtDisplay
-                    commandLine = $(if ($sameProcess) { $meta.CommandLine } else { $null })
-                    parentPid = $(if ($sameProcess) { [int]$meta.ParentProcessId } else { $null })
-                    parentName = $(if ($null -ne $parent) { $parent.Name } else { $null })
-                    services = $processServices
                     detailsWarnings = @($detailsWarnings)
                 }
             })
-        } finally {
-            foreach ($process in $procById.Values) { $process.Dispose() }
+            # PowerShell 5.1 对空数组的 -InputObject 序列化输出为空串，显式返回 []。
+            if ($rows.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject $rows -Depth 3 -Compress }
         }
-        # PowerShell 5.1 对空数组的 -InputObject 序列化输出为空串，显式返回 []。
-        if ($rows.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject $rows -Depth 3 -Compress }
+    } elseif ($action -eq 'details') {
+        # 详情按需读取：只查目标进程，不扫描全机服务以外的信息。
+        $warnings = @()
+        $commandLine = $null
+        $parentPid = $null
+        $parentName = $null
+        $serviceList = $null
+        $componentError = Initialize-ProcessInfo
+        if ($null -ne $componentError) { $warnings += $componentError }
+        $snapshot = @{}
+        if ($null -eq $componentError) {
+            try {
+                foreach ($entry in [PortProcessInfo]::Snapshot().GetEnumerator()) {
+                    $snapshot[$entry.Key] = $entry.Value
+                }
+            } catch {
+                $warnings += "进程快照读取失败：$($_.Exception.Message)"
+                $componentError = '进程快照不可用'
+            }
+        }
+        $identity = $snapshot[$targetPid]
+        if ($null -ne $componentError) {
+            $warnings += '无法校验进程身份，详情不可用。'
+        } elseif ($null -eq $identity -or $identity.CreateTicks.ToString() -ne $expectedStart) {
+            $warnings += '进程已退出或已变化，无法读取详情，请刷新。'
+        } else {
+            try { $commandLine = [PortProcessInfo]::Read($targetPid, $identity.CreateTicks).CommandLine }
+            catch { $warnings += "启动命令读取失败：$($_.Exception.GetBaseException().Message)" }
+            if ($identity.ParentPid -gt 0) {
+                $parentPid = $identity.ParentPid
+                $parent = $snapshot[$identity.ParentPid]
+                # 父进程退出后 PID 可能复用，比子进程更晚启动的不能显示为父进程。
+                if ($null -ne $parent -and $parent.CreateTicks -le $identity.CreateTicks) { $parentName = $parent.Name }
+            }
+            try {
+                $serviceList = @(Get-CimInstance Win32_Service -Filter "ProcessId = $targetPid" -Property Name, DisplayName, State -OperationTimeoutSec 10 | ForEach-Object {
+                    [pscustomobject]@{ name = $_.Name; displayName = $_.DisplayName; state = $_.State }
+                })
+            } catch {
+                $warnings += "关联服务读取失败：$($_.Exception.Message)"
+            }
+        }
+        ConvertTo-Json -InputObject ([pscustomobject]@{
+            commandLine = $commandLine; parentPid = $parentPid; parentName = $parentName
+            services = $serviceList; warnings = @($warnings)
+        }) -Depth 3 -Compress
     } else {
         if ($targetPid -le 4 -or $targetPid -eq $appPid) { throw '不允许停止系统进程或工具箱自身。' }
-        $process = Get-Process -Id $targetPid -ErrorAction Stop
+        try { $process = [System.Diagnostics.Process]::GetProcessById($targetPid) }
+        catch { throw '进程已退出，请刷新。' }
         try {
             # 先持有进程句柄，再比较启动时间，避免 PID 被复用后停止另一个程序。
             $null = $process.Handle

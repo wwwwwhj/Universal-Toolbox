@@ -25,6 +25,15 @@ interface PortOwner {
   detailsWarnings: string[];
 }
 
+// 启动命令、父进程和关联服务在打开详情时按需读取，列表查询不附带。
+interface PortOwnerDetails {
+  commandLine: string | null;
+  parentPid: number | null;
+  parentName: string | null;
+  services: { name: string; displayName: string; state: string }[] | null;
+  warnings: string[];
+}
+
 interface Endpoint {
   address: string;
   remote: string | null;
@@ -51,21 +60,19 @@ export function groupPortOwners(rows: PortOwner[]): GroupedRow[] {
   return [...groups.values()];
 }
 
-interface NameFilter {
-  label: string;
-  match: (row: PortOwner) => boolean;
-}
+type PresetId = "nodejs" | "java" | "python";
 
-// 预设按进程名精确匹配；Windows 的 ProcessName 和 macOS 的 lsof 命令名都不带扩展名。
-const PROCESS_PRESETS: NameFilter[] = [
-  { label: "Node.js", match: (row) => row.name.toLowerCase() === "node" },
-  { label: "Java", match: (row) => ["java", "javaw"].includes(row.name.toLowerCase()) },
-  { label: "Python", match: (row) => /^pythonw?[\d.]*$/.test(row.name.toLowerCase()) },
+// 预设按进程名精确匹配，过滤在后端执行（Windows 的 ProcessName 和 macOS 的 lsof 命令名都不带扩展名）。
+const PROCESS_PRESETS: { label: string; id: PresetId }[] = [
+  { label: "Node.js", id: "nodejs" },
+  { label: "Java", id: "java" },
+  { label: "Python", id: "python" },
 ];
 
 interface QueryTarget {
   port: number | null;
-  name: NameFilter | null;
+  text: string | null;
+  preset: { id: PresetId; label: string } | null;
 }
 
 function isListenEndpoint(endpoint: Endpoint) {
@@ -98,6 +105,12 @@ export default function PortsPage() {
   const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<PortOwner | null>(null);
   const [detail, setDetail] = useState<PortOwner | null>(null);
+  const [detailExtras, setDetailExtras] = useState<{
+    pid: number;
+    state: "loading" | "ready" | "error";
+    data: PortOwnerDetails | null;
+    error: string;
+  } | null>(null);
   const [listenOnly, setListenOnly] = useState(false);
   const [sort, setSort] = useState<{ key: "port" | "name"; asc: boolean }>({ key: "port", asc: true });
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -121,9 +134,14 @@ export default function PortsPage() {
     return (cmp || a.pid - b.pid) * (sort.asc ? 1 : -1);
   });
   const queryParts = query
-    ? [query.port !== null ? `端口 ${query.port}` : null, query.name ? `${query.name.label} 进程` : null]
+    ? [
+        query.port !== null ? `端口 ${query.port}` : null,
+        query.preset ? `${query.preset.label} 进程` : query.text ? `匹配“${query.text}”` : null,
+      ]
     : [];
   const queryLabel = queryParts.filter(Boolean).join(" · ") || "全部端口";
+  // 详情字段按进程读取；仅在弹窗对应行仍是当前进程时使用返回值。
+  const activeExtras = detailExtras && detail && detailExtras.pid === detail.pid ? detailExtras : null;
 
   useEffect(() => {
     // 从长列表选择进程时，把确认信息带入视野和键盘焦点。
@@ -135,6 +153,24 @@ export default function PortsPage() {
     if (detail && !dialog.current?.open) dialog.current?.showModal();
     if (!detail && dialog.current?.open) dialog.current.close();
   }, [detail]);
+
+  useEffect(() => {
+    if (!detail || !desktop) {
+      setDetailExtras(null);
+      return;
+    }
+    // 启动命令、父进程和关联服务按需读取；进程身份不可用时直接显示占位。
+    if (!detail.startedAt) {
+      setDetailExtras({ pid: detail.pid, state: "ready", data: null, error: "" });
+      return;
+    }
+    let stale = false;
+    setDetailExtras({ pid: detail.pid, state: "loading", data: null, error: "" });
+    invoke<PortOwnerDetails>("get_port_owner_details", { pid: detail.pid, startedAt: detail.startedAt })
+      .then((data) => { if (!stale) setDetailExtras({ pid: detail.pid, state: "ready", data, error: "" }); })
+      .catch((error) => { if (!stale) setDetailExtras({ pid: detail.pid, state: "error", data: null, error: String(error) }); });
+    return () => { stale = true; };
+  }, [detail, desktop]);
 
   useEffect(() => {
     if (!autoRefresh || !query || !desktop) return;
@@ -152,9 +188,12 @@ export default function PortsPage() {
   }, [autoRefresh, query, desktop, busy]);
 
   async function fetchRows(target: QueryTarget) {
-    const result = await invoke<PortOwner[]>("list_port_owners", { port: target.port });
-    const filter = target.name;
-    return filter ? result.filter((row) => filter.match(row)) : result;
+    // 名称与预设过滤在后端执行，查询只需为匹配的进程收集信息。
+    return invoke<PortOwner[]>("list_port_owners", {
+      port: target.port,
+      name: target.text,
+      preset: target.preset?.id ?? null,
+    });
   }
 
   async function refresh(target: QueryTarget) {
@@ -185,15 +224,10 @@ export default function PortsPage() {
       setError("请输入 1–65535 之间的整数端口，或留空查询全部。");
       return;
     }
-    // 自由文本同时匹配进程名、启动命令和程序路径，否则搜脚本名/服务名会漏掉 node、java 这类宿主进程。
-    const text = nameText.toLowerCase();
     await runQuery({
       port: portText === "" ? null : Number(portText),
-      name: nameText === "" ? null : {
-        label: nameText,
-        match: (row) => [row.name, row.commandLine, row.path]
-          .some((value) => value?.toLowerCase().includes(text)),
-      },
+      text: nameText === "" ? null : nameText,
+      preset: null,
     });
   }
 
@@ -235,7 +269,7 @@ export default function PortsPage() {
       // 停止成功与刷新失败分别反馈，避免误导用户再次停止同一个 PID。
       setRows([]);
       setHasQueried(false);
-      try { await refresh(query ?? { port: null, name: null }); }
+      try { await refresh(query ?? { port: null, text: null, preset: null }); }
       catch (error) { setError(`进程已停止，但刷新失败：${String(error)}`); }
     } catch (error) {
       setError(String(error));
@@ -269,8 +303,8 @@ export default function PortsPage() {
           <span>常用类型</span>
           <div className="ui-actions">
             {PROCESS_PRESETS.map((preset) => (
-              <button key={preset.label} className="ui-button" type="button" disabled={busy || !desktop}
-                onClick={() => void runQuery({ port: null, name: preset })}>{preset.label}</button>
+              <button key={preset.id} className="ui-button" type="button" disabled={busy || !desktop}
+                onClick={() => void runQuery({ port: null, text: null, preset })}>{preset.label}</button>
             ))}
           </div>
         </div>
@@ -365,18 +399,21 @@ export default function PortsPage() {
             <dl>
               <dt>工作目录（当前）<CopyButton field="cwd" value={detail.workingDirectory} copied={copied} onCopy={copy} /></dt>
               <dd>{detail.workingDirectory || detail.workingDirectoryError || "无法读取（权限不足或进程已退出）"}</dd>
-              <dt>启动命令<CopyButton field="command" value={detail.commandLine} copied={copied} onCopy={copy} /></dt>
-              <dd><code>{detail.commandLine || "无法读取（权限不足或进程已变化）"}</code></dd>
+              <dt>启动命令<CopyButton field="command" value={activeExtras?.data?.commandLine ?? null} copied={copied} onCopy={copy} /></dt>
+              <dd><code>{activeExtras?.state === "loading" ? "读取中…" : activeExtras?.data?.commandLine || "无法读取（权限不足或进程已变化）"}</code></dd>
               <dt>程序路径<CopyButton field="path" value={detail.path} copied={copied} onCopy={copy} /></dt>
               <dd>{detail.path || "无法读取"}</dd>
               <dt>启动时间</dt><dd>{detail.startedAtDisplay ? new Date(detail.startedAtDisplay).toLocaleString() : "无法读取"}</dd>
-              <dt>父进程</dt><dd>{detail.parentPid === null ? "无法读取" : `${detail.parentName || "名称不可用（可能已退出）"} / PID ${detail.parentPid}`}</dd>
+              <dt>父进程</dt>
+              <dd>{activeExtras?.state === "loading" ? "读取中…" : activeExtras?.data?.parentPid == null ? "无法读取"
+                : `${activeExtras.data.parentName || "名称不可用（可能已退出）"} / PID ${activeExtras.data.parentPid}`}</dd>
               <dt>关联 Windows 服务</dt>
-              <dd>{detail.platform === "macos" ? "不适用（macOS）" : detail.services === null ? "无法读取（权限不足或进程已变化）" : detail.services.length === 0 ? "无关联服务" : (
-                <ul>{detail.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
+              <dd>{detail.platform === "macos" ? "不适用（macOS）" : activeExtras?.state === "loading" ? "读取中…" : activeExtras?.data?.services == null ? "无法读取（权限不足或进程已变化）" : activeExtras.data.services.length === 0 ? "无关联服务" : (
+                <ul>{activeExtras.data.services.map((service) => <li key={service.name}>{service.displayName}（{service.name}）— {service.state}</li>)}</ul>
               )}</dd>
             </dl>
-            {detail.detailsWarnings.map((warning) => <p className="ui-feedback ui-feedback--error" key={warning}>{warning}</p>)}
+            {[...(detail.detailsWarnings ?? []), ...(activeExtras?.data?.warnings ?? []), ...(activeExtras?.state === "error" ? [activeExtras.error] : [])]
+              .map((warning) => <p className="ui-feedback ui-feedback--error" key={warning}>{warning}</p>)}
             <div className="ui-actions ports-dialog-actions">
               <button className="ui-button" type="button" onClick={() => askStop(detail)}
                 disabled={busy || !!detail.blockedReason || !detail.startedAt}>停止进程</button>
