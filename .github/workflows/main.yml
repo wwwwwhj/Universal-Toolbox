@@ -100,11 +100,11 @@ jobs:
           # 不让 tauri-action 自动判断 yarn/npm/pnpm
           tauriScript: pnpm tauri
 
-          tagName: app-v__VERSION__
-          releaseName: 'Git Workbench v__VERSION__'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Git Workbench ${{ github.ref_name }}'
 
           releaseBody: |
-            Git Workbench v__VERSION__
+            Git Workbench ${{ github.ref_name }}
 
             Builds:
             - Windows
@@ -112,7 +112,7 @@ jobs:
             - macOS Intel
             - Linux
 
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
 
           args: ${{ matrix.args }}
