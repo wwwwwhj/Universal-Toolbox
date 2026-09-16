@@ -495,7 +495,7 @@ mod native {
             return Err("系统进程不可停止，或进程身份已变化，请刷新。".into());
         }
         if !sockets(Some(port))?.iter().any(|file| {
-            file.pid == pid && local_endpoint(file).is_some_and(|(_, local)| local == port)
+            file.pid == pid && local_endpoint(file).is_some_and(|(_, local, _)| local == port)
         }) {
             return Err("该进程已不再占用此端口，请刷新。".into());
         }
