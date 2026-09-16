@@ -13,6 +13,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             modules::cache::scan_dev_caches,
+            modules::cache::set_cache_dir,
+            modules::cache::open_cache_dir,
             modules::ports::list_port_owners,
             modules::ports::stop_port_owner
         ])

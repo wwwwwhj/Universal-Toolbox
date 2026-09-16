@@ -22,5 +22,5 @@ export const modules: readonly ToolboxModule[] = [
   { id: "inventory", name: "库存管理", route: "/inventory", component: InventoryPage, icon: Boxes },
   { id: "snake", name: "Snake", route: "/snake", component: SnakePage, icon: Gamepad2 },
   { id: "ports", name: "端口管理", route: "/ports", component: PortsPage, icon: Network },
-  { id: "cache", name: "缓存管理", route: "/cache", component: CachePage, icon: HardDrive },
+  { id: "cache", name: "开发缓存管理", route: "/cache", component: CachePage, icon: HardDrive },
 ];
