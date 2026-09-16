@@ -18,6 +18,10 @@
 .cache-dialog textarea.ui-input { resize: vertical; font-family: var(--ui-mono); }
 .cache-dialog .ui-field small { color: var(--ui-muted); font-size: var(--ui-text-xs); }
 /* 设置页的目标命令列表：内置与自定义目标的获取/修改命令。 */
+.cache-builtin { margin: var(--ui-space-4) 0; }
+.cache-builtin > summary { cursor: pointer; font-weight: 500; }
+.cache-builtin[open] > summary { margin-bottom: var(--ui-space-3); }
+.cache-custom-title { margin: var(--ui-space-5) 0 var(--ui-space-3); font-size: var(--ui-text-base); font-weight: 600; }
 .cache-targets { min-width: 640px; }
 .cache-targets .cache-command { display: block; margin: var(--ui-space-1) 0; font-size: var(--ui-text-xs); overflow-wrap: anywhere; }
 .cache-targets tr.is-hidden td { opacity: 0.55; }

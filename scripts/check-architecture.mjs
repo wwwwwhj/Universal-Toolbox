@@ -21,6 +21,17 @@ try {
   for (const hash of ["", "#", "#/"]) assert.equal(resolveModule(hash), modules[0]);
   for (const hash of ["#/missing", "#/ports/extra", "#/%broken"]) assert.equal(resolveModule(hash), undefined);
   assert.equal((shell.match(/aria-current="page"/g) || []).length, 1);
+  // 设置页：通用标签 + 每个声明 settingsComponent 的模块各一个分类标签。
+  const { default: SettingsPage } = await server.ssrLoadModule("/src/app/SettingsPage.tsx");
+  const { defaultPreferences } = await server.ssrLoadModule("/src/app/preferences.ts");
+  const settingsHtml = renderToStaticMarkup(
+    createElement(SettingsPage, { preferences: defaultPreferences, onChange: () => {} })
+  );
+  assert.ok(settingsHtml.includes('role="tablist"'));
+  assert.ok(settingsHtml.includes('id="settings-tab-general"'));
+  for (const module of modules.filter((module) => module.settingsComponent)) {
+    assert.ok(settingsHtml.includes(`id="settings-tab-${module.id}"`));
+  }
   const { groupPortOwners } = await server.ssrLoadModule("/src/modules/ports/PortsPage.tsx");
   const owner = { pid: 20944, port: 3000, protocol: "TCP", address: "[::]", remoteAddress: null, state: "LISTENING", startedAt: "123" };
   const input = [owner, { ...owner, address: "0.0.0.0" }, owner,

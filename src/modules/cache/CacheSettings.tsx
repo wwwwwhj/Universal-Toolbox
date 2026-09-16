@@ -31,6 +31,7 @@ export default function CacheSettings() {
   const dialog = useRef<HTMLDialogElement>(null);
   const desktop = isTauri();
   const hidden = new Set(settings.hiddenIds);
+  const removedCount = infos.filter((info) => hidden.has(info.id)).length;
   const editingExisting = draft !== null && settings.customTargets.some((target) => target.id === draft.id);
 
   useEffect(() => {
@@ -91,61 +92,83 @@ export default function CacheSettings() {
           浏览器预览无法读取内置目标的命令列表；自定义条目仍会保存，并在桌面应用中参与扫描。
         </p>
       )}
-      <div className="ui-table-wrap" tabIndex={0} role="region" aria-label="缓存目标的获取与修改命令，可横向滚动">
-        <table className="ui-table cache-targets">
-          <thead>
-            <tr><th>工具</th><th>获取路径</th><th>修改路径</th><th>操作</th></tr>
-          </thead>
-          <tbody>
-            {infos.map((info) => {
-              const isHidden = hidden.has(info.id);
-              return (
-                <tr key={info.id} className={isHidden ? "is-hidden" : undefined}>
-                  <td><strong>{info.name}</strong><small>{info.category}</small></td>
-                  <td>{info.getCommands.map((command) => <code key={command} className="cache-command">{command}</code>)}</td>
-                  <td>
-                    {info.setCommand
-                      ? <code className="cache-command">{info.setCommand}</code>
-                      : info.relocateGuide ? <small>{info.relocateGuide}</small> : "—"}
-                  </td>
-                  <td>
-                    {isHidden ? (
-                      <button className="ui-button" type="button"
-                        onClick={() => cacheSettings.update({ hiddenIds: settings.hiddenIds.filter((id) => id !== info.id) })}>
-                        恢复
-                      </button>
-                    ) : (
-                      <button className="ui-button" type="button" aria-label={`从扫描中移除 ${info.name}`}
-                        onClick={() => cacheSettings.update({ hiddenIds: [...settings.hiddenIds, info.id] })}>
-                        移除
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {settings.customTargets.map((target) => (
-              <tr key={target.id}>
-                <td><strong>{target.name}</strong><small>自定义</small></td>
-                <td>
-                  {target.getCommand && <code className="cache-command">{target.getCommand}</code>}
-                  {target.dirs.map((dir) => <code key={dir} className="cache-command">{dir}</code>)}
-                </td>
-                <td>{target.setCommand ? <code className="cache-command">{target.setCommand}</code> : "—"}</td>
-                <td>
-                  <div className="ui-actions">
-                    <button className="ui-button" type="button" onClick={() => openEditor(target)}>编辑</button>
-                    <button className="ui-button" type="button" aria-label={`删除自定义目标 ${target.name}`}
-                      onClick={() => cacheSettings.update({ customTargets: settings.customTargets.filter((item) => item.id !== target.id) })}>
-                      删除
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {infos.length > 0 && (
+        // 内置目标列表长且改动少，默认折叠；摘要行始终可见数量与已移除状态。
+        <details className="cache-builtin">
+          <summary>
+            内置目标（{infos.length} 个{removedCount > 0 ? `，已移除 ${removedCount} 个` : ""}）
+          </summary>
+          <div className="ui-table-wrap" tabIndex={0} role="region" aria-label="内置缓存目标的获取与修改命令，可横向滚动">
+            <table className="ui-table cache-targets">
+              <thead>
+                <tr><th>工具</th><th>获取路径</th><th>修改路径</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {infos.map((info) => {
+                  const isHidden = hidden.has(info.id);
+                  return (
+                    <tr key={info.id} className={isHidden ? "is-hidden" : undefined}>
+                      <td><strong>{info.name}</strong><small>{info.category}</small></td>
+                      <td>{info.getCommands.map((command) => <code key={command} className="cache-command">{command}</code>)}</td>
+                      <td>
+                        {info.setCommand
+                          ? <code className="cache-command">{info.setCommand}</code>
+                          : info.relocateGuide ? <small>{info.relocateGuide}</small> : "—"}
+                      </td>
+                      <td>
+                        {isHidden ? (
+                          <button className="ui-button" type="button"
+                            onClick={() => cacheSettings.update({ hiddenIds: settings.hiddenIds.filter((id) => id !== info.id) })}>
+                            恢复
+                          </button>
+                        ) : (
+                          <button className="ui-button" type="button" aria-label={`从扫描中移除 ${info.name}`}
+                            onClick={() => cacheSettings.update({ hiddenIds: [...settings.hiddenIds, info.id] })}>
+                            移除
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+      {settings.customTargets.length > 0 && (
+        <>
+          <h3 className="cache-custom-title">自定义目标</h3>
+          <div className="ui-table-wrap" tabIndex={0} role="region" aria-label="自定义缓存目标，可横向滚动">
+            <table className="ui-table cache-targets">
+              <thead>
+                <tr><th>工具</th><th>获取路径</th><th>修改路径</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {settings.customTargets.map((target) => (
+                  <tr key={target.id}>
+                    <td><strong>{target.name}</strong><small>自定义</small></td>
+                    <td>
+                      {target.getCommand && <code className="cache-command">{target.getCommand}</code>}
+                      {target.dirs.map((dir) => <code key={dir} className="cache-command">{dir}</code>)}
+                    </td>
+                    <td>{target.setCommand ? <code className="cache-command">{target.setCommand}</code> : "—"}</td>
+                    <td>
+                      <div className="ui-actions">
+                        <button className="ui-button" type="button" onClick={() => openEditor(target)}>编辑</button>
+                        <button className="ui-button" type="button" aria-label={`删除自定义目标 ${target.name}`}
+                          onClick={() => cacheSettings.update({ customTargets: settings.customTargets.filter((item) => item.id !== target.id) })}>
+                          删除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       <div className="ui-actions">
         <button className="ui-button" type="button" onClick={() => openEditor()}>添加自定义目标</button>
         <button className="ui-button" type="button" onClick={() => cacheSettings.reset()}>恢复默认</button>

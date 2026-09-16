@@ -65,9 +65,15 @@ a { color: inherit; text-underline-offset: 3px; }
 .settings-order-name svg { flex-shrink: 0; color: var(--ui-muted); }
 .settings-order-name small { color: var(--ui-muted); font-size: var(--ui-text-xs); }
 .settings-order .ui-button { min-height: 28px; padding: var(--ui-space-1) var(--ui-space-2); font-size: var(--ui-text-xs); box-shadow: none; }
-/* 模块在设置页的配置分区：与全局偏好用分隔线区分，字段样式沿用公共 ui- 类。 */
-.settings-module { margin-top: var(--ui-space-6); padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border); }
-.settings-module h2 { margin: 0; }
+/* 设置页：左侧分类标签 + 右侧内容面板；标签吸顶，长内容滚动时保持可见。 */
+.settings-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: var(--ui-space-4) var(--ui-space-6); align-items: start; margin-top: var(--ui-space-4); }
+.settings-tabs { display: grid; gap: 2px; position: sticky; top: var(--ui-space-4); }
+.settings-tabs [role="tab"] { display: flex; align-items: center; gap: var(--ui-space-2); min-height: 32px; padding: var(--ui-space-1) var(--ui-space-3); border: 0; border-radius: var(--ui-radius-sm); background: none; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-sm); text-align: left; cursor: pointer; transition: background-color var(--ui-motion), color var(--ui-motion); }
+.settings-tabs [role="tab"] svg { flex-shrink: 0; }
+.settings-tabs [role="tab"]:hover { background: var(--ui-hover); color: var(--ui-text); }
+.settings-tabs [role="tab"][aria-selected="true"] { background: var(--ui-selected); color: var(--ui-text); font-weight: 600; }
+.settings-panel { min-width: 0; }
+.settings-panel > h2 { margin: 0; }
 .main-content { flex: 1; min-width: 0; padding: var(--ui-space-6); overflow: auto; overflow-wrap: anywhere; }
 .main-content h1 { margin: 0 0 var(--ui-space-2); font-size: var(--ui-text-title); font-weight: 600; line-height: 1.4; letter-spacing: -0.02em; text-wrap: balance; }
 .main-content h2 { font-size: var(--ui-text-lg); font-weight: 600; letter-spacing: -0.01em; }
@@ -80,8 +86,11 @@ a { color: inherit; text-underline-offset: 3px; }
   .sidebar { width: 140px; padding: var(--ui-space-4) var(--ui-space-2); }
   .brand { font-size: var(--ui-text-base); }
   .main-content { padding: var(--ui-space-5) var(--ui-space-4); }
+  /* 窄窗口：设置标签横向排列在内容上方。 */
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-tabs { display: flex; flex-wrap: wrap; position: static; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar nav a { transition: none; }
+  .sidebar nav a, .settings-tabs [role="tab"] { transition: none; }
 }
