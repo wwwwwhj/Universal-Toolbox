@@ -78,6 +78,18 @@ function blurActiveControl() {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 }
 
+// 分段控件 onChange 后按需失焦：鼠标点击时焦点不在控件内（mousedown 已拦截），
+// 失焦无感；键盘 Tab + 方向键操作时焦点在该控件的 radio 上，必须保留才能连续调整。
+function blurUnlessInside(name: string) {
+  if (
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement.closest(`input[name="${name}"]`)
+  ) {
+    return;
+  }
+  blurActiveControl();
+}
+
 function formatTime(ms: number) {
   const total = Math.floor(ms / 1000);
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
@@ -90,6 +102,8 @@ export default function SnakePage() {
   const VIEW = VIEW_CELLS[settings.view];
   const HALF_VIEW = (VIEW - 1) / 2;
   const [phase, setPhase] = useState<Phase>("ready");
+  // 每次重开递增：驱动移动定时器重建，保证新局第一步等待完整节拍。
+  const [runId, setRunId] = useState(0);
   const [game, setGame] = useState<GameState>(() => {
     const initial = snakeSettings.get();
     return newGame(initial.obstacles, (VIEW_CELLS[initial.view] - 1) / 2);
@@ -121,6 +135,11 @@ export default function SnakePage() {
   // 用时 = 已确认累计（暂停/结束时结算）+ 当前运行段。
   const accumRef = useRef(0);
   const runStartRef = useRef(0);
+  // 本局起跑时的最高分基线：破纪录在吃食当下立即持久化（重开不丢分），
+  // 此基线仅用于结算卡的「新纪录」标记。
+  const bestAtStartRef = useRef(settings.best);
+  // 上一步的真实时间戳：效果时长按实际时间差扣减；暂停 / 恢复 / 重开时重置。
+  const lastStepAtRef = useRef(performance.now());
 
   // 渲染快照：canvas 每帧在 prev→cur 之间插值；tickAt 只在真正的游戏 tick 推进，
   // 转向 / 跳跃等非 tick 提交不打断插值相位；gen 变化（重开）时相机直接归位。
@@ -170,7 +189,9 @@ export default function SnakePage() {
   }
 
   function start() {
-    runStartRef.current = performance.now();
+    const now = performance.now();
+    runStartRef.current = now;
+    lastStepAtRef.current = now;
     phaseRef.current = "running";
     setPhase("running");
   }
@@ -178,27 +199,49 @@ export default function SnakePage() {
   function restart() {
     const next = newGame(settings.obstacles, HALF_VIEW);
     const r = renderRef.current;
+    const now = performance.now();
     renderRef.current = {
       prev: next,
       cur: next,
-      tickAt: performance.now(),
+      tickAt: now,
       gen: r.gen + 1,
       pops: [],
       bursts: [],
     };
     commitGame(next);
     accumRef.current = 0;
+    bestAtStartRef.current = settings.best;
+    lastStepAtRef.current = now;
+    // 上一局的道具横幅和它的定时器一并清掉，不带到新局。
+    window.clearTimeout(noticeTimer.current);
+    setNotice(null);
     setElapsedMs(0);
     setNewBest(false);
     setCrash(false);
-    runStartRef.current = performance.now();
+    runStartRef.current = now;
     phaseRef.current = "running";
     setPhase("running");
+    // 进行中重开时 phase/effTickMs 都没变，定时器不会重建；
+    // bump runId 强制重建，新局第一步总是等满一个完整节拍。
+    setRunId((id) => id + 1);
   }
 
   function pause() {
     if (phaseRef.current !== "running") return;
-    accumRef.current += performance.now() - runStartRef.current;
+    const now = performance.now();
+    // 先结算上次 tick 到暂停之间已运行的时间：这段道具时长不能漏扣。
+    const stepMs = Math.max(now - lastStepAtRef.current, 0);
+    lastStepAtRef.current = now;
+    const g = gameRef.current;
+    if (stepMs > 0 && (g.smash > 0 || g.swim > 0 || g.fly > 0)) {
+      commitGame({
+        ...g,
+        smash: Math.max(0, g.smash - stepMs),
+        swim: Math.max(0, g.swim - stepMs),
+        fly: Math.max(0, g.fly - stepMs),
+      });
+    }
+    accumRef.current += now - runStartRef.current;
     setElapsedMs(accumRef.current);
     phaseRef.current = "paused";
     setPhase("paused");
@@ -206,23 +249,19 @@ export default function SnakePage() {
 
   function resume() {
     if (phaseRef.current !== "paused") return;
-    runStartRef.current = performance.now();
+    const now = performance.now();
+    runStartRef.current = now;
+    lastStepAtRef.current = now;
     phaseRef.current = "running";
     setPhase("running");
   }
 
-  function finish(score: number, crashed: boolean) {
+  function finish(crashed: boolean) {
     accumRef.current += performance.now() - runStartRef.current;
     setElapsedMs(accumRef.current);
     phaseRef.current = "over";
     setPhase("over");
     setCrash(crashed);
-    if (score > settings.best) {
-      snakeSettings.update({ best: score });
-      setNewBest(true);
-    } else {
-      setNewBest(false);
-    }
   }
 
   function turn(dir: Cell) {
@@ -256,29 +295,31 @@ export default function SnakePage() {
     const dir = queue.length > 0 ? queue.shift()! : g.dir;
     const head = { x: g.snake[0].x + dir.x, y: g.snake[0].y + dir.y };
     const headKey = keyOf(head);
-    // air / fly 在本 tick 递减；归零即落地，落点必须是空地（不能撞岩石水面或自身）。
+    const now = performance.now();
+    // 效果按真实流逝时间扣减：取相邻两步的实际时间差，卡顿 / 计时间隔漂移会如实计入；
+    // start / resume / restart 会重置 lastStepAt，暂停时长不计入。
+    const stepMs = Math.max(now - lastStepAtRef.current, 0);
+    lastStepAtRef.current = now;
+    // air 按 tick 递减；归零即落地，落点必须是空地（不能撞岩石水面或自身）。
     const air = Math.max(0, g.air - 1);
-    let fly = Math.max(0, g.fly - 1);
-    // 腾空（跳跃或飞行）时危险全部豁免；跳跃的短腾空吃不到东西，飞行可以俯冲拾取。
-    const airborne = air > 0 || fly > 0;
+    // 道具效果按真实流逝毫秒扣减，吃到新道具时刷新为满时长。
+    let fly = Math.max(0, g.fly - stepMs);
+    let smash = Math.max(0, g.smash - stepMs);
+    let swim = Math.max(0, g.swim - stepMs);
+    // 跳跃的短腾空吃不到东西，飞行可以俯冲拾取。
     const canPick = air === 0;
-    // 道具效果每 tick 递减；吃到新道具时刷新为满时长。
-    let smash = Math.max(0, g.smash - 1);
-    let swim = Math.max(0, g.swim - 1);
     const foodIndex = canPick ? g.foods.findIndex((food) => eq(food, head)) : -1;
     const eating = foodIndex >= 0;
     const itemIndex = canPick ? g.items.findIndex((item) => eq(item, head)) : -1;
-    const now = performance.now();
     if (eating) {
       renderRef.current.pops.push({ x: head.x, y: head.y, at: now, label: "+1", color: "food" });
     }
     if (itemIndex >= 0) {
       const item = g.items[itemIndex];
       const ms = item.type === "smash" ? SMASH_MS : item.type === "swim" ? SWIM_MS : FLY_MS;
-      const ticks = Math.ceil(ms / TICK_MS[settings.speed]);
-      if (item.type === "smash") smash = Math.max(smash, ticks);
-      else if (item.type === "swim") swim = Math.max(swim, ticks);
-      else fly = Math.max(fly, ticks);
+      if (item.type === "smash") smash = Math.max(smash, ms);
+      else if (item.type === "swim") swim = Math.max(swim, ms);
+      else fly = Math.max(fly, ms);
       showNotice(
         item.type === "smash"
           ? "获得撞碎岩石能力 5秒"
@@ -294,6 +335,8 @@ export default function SnakePage() {
         color: item.type,
       });
     }
+    // 腾空状态在道具结算后计算：当步吃到飞行宝石立即生效，能救下致命落点。
+    const airborne = air > 0 || fly > 0;
     // 不吃食物时尾格会让出，先去掉再判自撞。
     const body = eating ? g.snake : g.snake.slice(0, -1);
     const onWater = terrainAt(head.x, head.y) === "water";
@@ -315,10 +358,15 @@ export default function SnakePage() {
         { ...g, snake: [head, ...body], dir, queue: [], air, cooldown, smash, swim, fly },
         true,
       );
-      finish(g.score, true);
+      finish(true);
       return;
     }
     const snake = [head, ...body];
+    const score = g.score + (eating ? 1 : 0);
+    // 得分破纪录立即持久化：刷新纪录后直接重开也不丢分；
+    // 「新纪录」以本局起跑基线为准，只标记一次。
+    if (score > settings.best) snakeSettings.update({ best: score });
+    if (score > bestAtStartRef.current) setNewBest(true);
     let foods = eating ? g.foods.filter((_, index) => index !== foodIndex) : g.foods;
     let items = itemIndex >= 0 ? g.items.filter((_, index) => index !== itemIndex) : g.items;
     // 甩掉离蛇头太远的食物和道具，再把数量补足到常驻值。
@@ -355,7 +403,7 @@ export default function SnakePage() {
         items,
         dir,
         queue,
-        score: g.score + (eating ? 1 : 0),
+        score,
         air,
         cooldown,
         destroyed,
@@ -368,14 +416,14 @@ export default function SnakePage() {
     setElapsedMs(accumRef.current + performance.now() - runStartRef.current);
   }
 
-  // interval 经 ref 调最新 step，速度档位或飞行加速变化时按新间隔重建定时器。
+  // interval 经 ref 调最新 step，速度档位、飞行加速或重开（runId）变化时按新间隔重建定时器。
   const stepRef = useRef(step);
   stepRef.current = step;
   useEffect(() => {
     if (phase !== "running") return;
     const id = window.setInterval(() => stepRef.current(), effTickMs);
     return () => window.clearInterval(id);
-  }, [phase, effTickMs]);
+  }, [phase, effTickMs, runId]);
 
   // 渲染循环：rAF 每帧绘制，相机指数平滑追蛇头（时间常数 ~1.8 tick）。
   // 游戏区不再有任何 DOM 动画 / React reconcile，开销与节点数无关。
@@ -440,13 +488,16 @@ export default function SnakePage() {
       const onOption =
         event.target instanceof HTMLElement && event.target.closest("input, select");
       if (onOption && key.startsWith("arrow")) return;
+      // 先拦浏览器默认滚动，再忽略长按重复——顺序不能反，否则长按方向键仍滚动页面。
       event.preventDefault();
+      if (event.repeat) return;
       if (phaseRef.current === "running") turn(dir);
       return;
     }
     // 空格是主操作键：未开始 = 开始，已暂停 = 继续，进行中 = 跳跃；J / Shift 仅跳跃。
     if (key === " " || key === "j" || key === "shift") {
       event.preventDefault();
+      if (event.repeat) return;
       const current = phaseRef.current;
       if (current === "ready") start();
       else if (current === "paused") resume();
@@ -454,6 +505,7 @@ export default function SnakePage() {
       return;
     }
     if (key === "p" || key === "escape") {
+      if (event.repeat) return;
       const current = phaseRef.current;
       if (current === "running") pause();
       else if (current === "paused") resume();
@@ -461,6 +513,7 @@ export default function SnakePage() {
     }
     if (key === "enter") {
       event.preventDefault();
+      if (event.repeat) return;
       if (phaseRef.current === "ready") start();
       else restart();
     }
@@ -509,7 +562,7 @@ export default function SnakePage() {
           options={SPEED_OPTIONS}
           onChange={(speed) => {
             snakeSettings.update({ speed });
-            blurActiveControl();
+            blurUnlessInside("snake-speed");
           }}
         />
         <SegmentedField
@@ -522,7 +575,7 @@ export default function SnakePage() {
           ]}
           onChange={(value) => {
             snakeSettings.update({ obstacles: value === "on" });
-            blurActiveControl();
+            blurUnlessInside("snake-obstacles");
           }}
         />
         <SegmentedField
@@ -532,7 +585,7 @@ export default function SnakePage() {
           options={VIEW_OPTIONS}
           onChange={(view) => {
             snakeSettings.update({ view });
-            blurActiveControl();
+            blurUnlessInside("snake-view");
           }}
         />
         <SegmentedField
@@ -542,7 +595,7 @@ export default function SnakePage() {
           options={SIZE_OPTIONS}
           onChange={(size) => {
             snakeSettings.update({ size });
-            blurActiveControl();
+            blurUnlessInside("snake-size");
           }}
         />
         <button
@@ -645,10 +698,10 @@ export default function SnakePage() {
             <div className="snake-buffs">
               {game.smash > 0 && (
                 <div className="snake-buff snake-buff--smash">
-                  <span>碎岩 {Math.ceil((game.smash * effTickMs) / 1000)}s</span>
+                  <span>碎岩 {Math.ceil(game.smash / 1000)}s</span>
                   <i
                     style={{
-                      width: `${Math.min(100, (game.smash * effTickMs * 100) / SMASH_MS)}%`,
+                      width: `${Math.min(100, (game.smash * 100) / SMASH_MS)}%`,
                       transitionDuration: `${effTickMs}ms`,
                     }}
                   />
@@ -656,10 +709,10 @@ export default function SnakePage() {
               )}
               {game.swim > 0 && (
                 <div className="snake-buff snake-buff--swim">
-                  <span>游泳 {Math.ceil((game.swim * effTickMs) / 1000)}s</span>
+                  <span>游泳 {Math.ceil(game.swim / 1000)}s</span>
                   <i
                     style={{
-                      width: `${Math.min(100, (game.swim * effTickMs * 100) / SWIM_MS)}%`,
+                      width: `${Math.min(100, (game.swim * 100) / SWIM_MS)}%`,
                       transitionDuration: `${effTickMs}ms`,
                     }}
                   />
@@ -667,10 +720,10 @@ export default function SnakePage() {
               )}
               {game.fly > 0 && (
                 <div className="snake-buff snake-buff--fly">
-                  <span>飞行 {Math.ceil((game.fly * effTickMs) / 1000)}s</span>
+                  <span>飞行 {Math.ceil(game.fly / 1000)}s</span>
                   <i
                     style={{
-                      width: `${Math.min(100, (game.fly * effTickMs * 100) / FLY_MS)}%`,
+                      width: `${Math.min(100, (game.fly * 100) / FLY_MS)}%`,
                       transitionDuration: `${effTickMs}ms`,
                     }}
                   />

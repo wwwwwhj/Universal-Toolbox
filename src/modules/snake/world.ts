@@ -27,10 +27,11 @@ export interface GameState {
   cooldown: number;
   // 本局内被碎岩道具撞碎的岩石坐标集合；岩石由坐标哈希生成，撞碎记录在此排除。
   destroyed: Set<string>;
-  // 道具效果剩余 tick 数（时长按吃到时的速度档位折算）。
+  // 道具效果剩余毫秒数，每个 tick 按相邻两步的真实时间差扣减——
+  // 不受速度档位或飞行加速影响，卡顿如实计入，暂停不计入。5 秒就是真实 5 秒。
   smash: number;
   swim: number;
-  // 飞行剩余 tick 数；>0 时持续腾空（同 air 的危险豁免），归零即落地判定。
+  // 飞行剩余毫秒数；>0 时持续腾空（同 air 的危险豁免），归零即落地判定。
   fly: number;
 }
 

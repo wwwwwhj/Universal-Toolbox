@@ -34,6 +34,11 @@
   position: relative;
   width: min(100%, max(280px, calc(100dvh - 300px)));
   perspective: 1300px;
+  /* 道具用色定义在共同祖先上：canvas 探测、设计稿 mock 元素、底部倒计时胶囊
+     （与棋盘是兄弟节点）都从这里继承。碎岩 = 金，游泳 = 蓝，飞行 = 紫。 */
+  --snake-smash: light-dark(#a67c10, #f0c452);
+  --snake-swim: light-dark(#3f7fbf, #6fb1e8);
+  --snake-fly: light-dark(#7a5fc0, #a88fe0);
 }
 .snake-board-wrap--s { width: min(400px, 100%); }
 .snake-board-wrap--m { width: min(560px, 100%); }
@@ -68,10 +73,6 @@
   --snake-head: light-dark(#38784a, #8fce9b);
   --snake-food: light-dark(#b8503f, #e08070);
   --snake-wall: light-dark(#9b9b93, #5a5a52);
-  /* 道具用色：碎岩 = 金，游泳 = 蓝，飞行 = 紫。 */
-  --snake-smash: light-dark(#a67c10, #f0c452);
-  --snake-swim: light-dark(#3f7fbf, #6fb1e8);
-  --snake-fly: light-dark(#7a5fc0, #a88fe0);
   /* 地形用色：草地是棋盘底色，沙漠 / 海洋以地面格渲染在其上。 */
   --snake-grass: light-dark(#b9cd9e, #46553c);
   --snake-sand: light-dark(#e2d3a4, #6e6148);

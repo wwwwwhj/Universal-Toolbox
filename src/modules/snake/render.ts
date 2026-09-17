@@ -269,8 +269,11 @@ export function drawBoard(
   const airborne = air || fly;
   const segPos = (i: number): Cell => {
     const cur = snake[i];
-    const from = i === 0 ? prev[0] : (prev[Math.min(i - 1, prev.length - 1)] ?? cur);
-    return from ? { x: lerp(from.x, cur.x, t), y: lerp(from.y, cur.y, t) } : cur;
+    // 每节从自己的旧位置滑到新位置。身体跟随是 cur[i]=prev[i-1]，若误用 prev[i-1]
+    // 作起点则起点=终点，身体整 tick 静止、切 tick 时集体跳格；吃食新增的尾节
+    // prev 中不存在，回退为原位出现（正好落在旧尾格）。
+    const from = prev[i] ?? cur;
+    return { x: lerp(from.x, cur.x, t), y: lerp(from.y, cur.y, t) };
   };
   const pad = cell * 0.08;
   // 飞行比跳跃抬得更高。
