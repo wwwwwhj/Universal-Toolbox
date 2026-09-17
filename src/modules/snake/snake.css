@@ -1,0 +1,408 @@
+/* 贪吃蛇模块布局；控件、配色与动效时值沿用全局 UI 规范（设计稿：docs/snake-design.html）。 */
+/* 蛇身、食物、障碍为游戏图形用色（规范允许模块局部定义），经 light-dark() 跟随 color-scheme，不读取 data-*。 */
+
+.snake-btn { display: inline-flex; align-items: center; gap: var(--ui-space-2); }
+.snake-btn svg { flex-shrink: 0; }
+.snake-check { display: inline-flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-sm); }
+
+/* 游戏区整体作为居中单列：统计、棋盘与提示都在页面水平居中。 */
+.snake-surface { margin-top: var(--ui-space-4); display: flex; flex-direction: column; align-items: center; }
+
+.snake-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--ui-space-2) var(--ui-space-5);
+  margin-bottom: var(--ui-space-4);
+  color: var(--ui-muted);
+  font-size: var(--ui-text-sm);
+}
+.snake-stats span { display: inline-flex; align-items: center; gap: 5px; }
+.snake-stats svg { flex-shrink: 0; }
+.snake-stats strong {
+  color: var(--ui-text);
+  font-family: var(--ui-mono);
+  font-weight: 600;
+  font-size: var(--ui-text-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 伪 3D：棋盘整体透视倾斜，像一块悬浮的板；遮罩层是平级兄弟节点，保持正对用户。
+   默认自动铺满：宽度取列宽与「窗口高度 - 界面开销」的较小值（正方形不超出窗口），
+   大屏幕自然用大棋盘；s/m/l 为固定尺寸覆盖。 */
+.snake-board-wrap {
+  position: relative;
+  width: min(100%, max(280px, calc(100dvh - 300px)));
+  perspective: 1300px;
+}
+.snake-board-wrap--s { width: min(400px, 100%); }
+.snake-board-wrap--m { width: min(560px, 100%); }
+.snake-board-wrap--l { width: min(720px, 100%); }
+.snake-board-wrap--crash { animation: snake-shake 220ms ease; }
+@keyframes snake-shake {
+  25% { transform: translate(3px, -2px); }
+  50% { transform: translate(-3px, 2px); }
+  75% { transform: translate(2px, 1px); }
+}
+
+/* 棋盘是 21×21 格的相机视窗，蛇头始终居中，世界随移动在窗下滑动；整体随宽度缩放，最大 440px 居中。
+   底纹 = 细网格线 + 深浅交替的棋盘格（conic 渐变重复）。
+   rotateX 倾斜 + 加深的下边框 = 板厚；大面积柔和投影制造悬浮感。 */
+.snake-board {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--ui-border);
+  border-bottom: 4px solid color-mix(in srgb, var(--ui-surface) 55%, rgb(0 0 0 / 0.45));
+  border-radius: var(--ui-radius-md);
+  overflow: hidden;
+  transform: rotateX(16deg);
+  transform-origin: 50% 62%;
+  box-shadow:
+    0 22px 36px -14px rgb(0 0 0 / 0.3),
+    0 8px 16px -10px rgb(0 0 0 / 0.22),
+    inset 0 1px 0 color-mix(in srgb, var(--ui-elevated) 70%, transparent);
+  --snake-cell: calc(100% / 21);
+  --snake-line: color-mix(in srgb, var(--ui-text) 16%, transparent);
+  --snake-body: light-dark(#4f9a5f, #74b982);
+  --snake-head: light-dark(#38784a, #8fce9b);
+  --snake-food: light-dark(#b8503f, #e08070);
+  --snake-wall: light-dark(#9b9b93, #5a5a52);
+  /* 道具用色：碎岩 = 金，游泳 = 蓝，飞行 = 紫。 */
+  --snake-smash: light-dark(#a67c10, #f0c452);
+  --snake-swim: light-dark(#3f7fbf, #6fb1e8);
+  --snake-fly: light-dark(#7a5fc0, #a88fe0);
+  /* 地形用色：草地是棋盘底色，沙漠 / 海洋以地面格渲染在其上。 */
+  --snake-grass: light-dark(#b9cd9e, #46553c);
+  --snake-sand: light-dark(#e2d3a4, #6e6148);
+  --snake-water: light-dark(#8db4d4, #31536e);
+  /* 相机：--cx/--cy 是视野左上角的世界坐标，世界层按它平移（带惯性缓动）。 */
+  --cx: 0;
+  --cy: 0;
+  --cam-dur: calc(var(--snake-dur, 120ms) * 2);
+  background: var(--snake-grass);
+}
+/* 游戏画面 = 一张 canvas（见 render.ts）：地形、网格、岩石、食物、蛇身全部逐帧绘制，
+   DOM 里没有游戏元素动画。下面的 .snake-grid / .snake-ground--* / .snake-seg / .snake-wall /
+   .snake-food / .snake-pop 等类仅供 docs/snake-design.html 的静态 mock 使用。 */
+.snake-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* 网格线：静态等价物，仅设计稿 mock 使用（实现里网格画在 canvas 贴图上）。
+   盖满视野 + 相机滞留余量（33 = 21 + 2×CAM_MARGIN）。 */
+.snake-grid {
+  position: absolute;
+  left: calc((var(--cx) - 6) * var(--snake-cell));
+  top: calc((var(--cy) - 6) * var(--snake-cell));
+  width: calc(var(--snake-cell) * 33);
+  height: calc(var(--snake-cell) * 33);
+  background-image:
+    linear-gradient(to right, var(--snake-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--snake-line) 1px, transparent 1px);
+  background-size: var(--snake-cell) var(--snake-cell);
+  pointer-events: none;
+}
+
+/* 地形色块：静态等价物，仅设计稿 mock 使用（实现里地形画在 canvas 上）。
+   沙漠与草地一样是地面；海洋是危险地形，深蓝色块 + 斜向水光，一眼可辨。 */
+.snake-ground--sand { background: var(--snake-sand); }
+.snake-ground--water {
+  background-color: var(--snake-water);
+  background-image:
+    linear-gradient(155deg, rgb(255 255 255 / 0.14), transparent 55%),
+    linear-gradient(to bottom, transparent 60%, rgb(0 0 0 / 0.12));
+}
+
+.snake-food, .snake-wall, .snake-ground {
+  position: absolute;
+  left: calc(var(--x) * var(--snake-cell));
+  top: calc(var(--y) * var(--snake-cell));
+  width: var(--snake-cell);
+  height: var(--snake-cell);
+}
+.snake-ground { width: calc(var(--w, 1) * var(--snake-cell)); }
+
+/* 蛇身 = 圆角小方块：上缘受光、下缘背光（inset 双侧阴影）+ 落地投影，是积木感的关键。
+   位移放进 transform 链：translate 的 % 相对元素自身解析，而自身正好一格宽，
+   x×100% 就是 x 格——位移/旋转/缩放/腾空统一走 GPU 合成动画，
+   不再像 left/top 动画那样每帧重绘盒阴影。 */
+.snake-seg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--snake-cell);
+  height: var(--snake-cell);
+  transform:
+    translate(calc(var(--x) * 100%), calc(var(--y) * 100%))
+    translateY(var(--lift, 0%))
+    rotate(var(--rot, 0deg))
+    scale(var(--sc, 1));
+  background: var(--snake-body);
+  background-clip: padding-box;
+  border: 1.5px solid transparent;
+  border-radius: 26%;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.18),
+    inset 0 -3px 0 rgb(0 0 0 / 0.18),
+    0 2px 3px rgb(0 0 0 / 0.16);
+  transition:
+    transform var(--snake-dur, 120ms) linear,
+    filter 140ms ease;
+}
+
+.snake-seg--head {
+  z-index: 1;
+  background-color: var(--snake-head);
+  border-radius: 34%;
+}
+.snake-seg--head[data-dir="up"] { --rot: -90deg; }
+.snake-seg--head[data-dir="down"] { --rot: 90deg; }
+.snake-seg--head[data-dir="left"] { --rot: 180deg; }
+/* 朝右时的两只眼睛，其他方向由 --rot 整体旋转。 */
+.snake-seg--head::before, .snake-seg--head::after {
+  content: "";
+  position: absolute;
+  right: 18%;
+  width: 16%;
+  height: 16%;
+  border-radius: 50%;
+  background: var(--ui-surface);
+}
+.snake-seg--head::before { top: 22%; }
+.snake-seg--head::after { bottom: 22%; }
+
+.snake-seg--tail { --sc: 0.7; }
+
+/* 腾空效果（设计稿静态表达）：整条蛇上抬 + 投影拉长。 */
+.snake-board--air .snake-seg {
+  --lift: -16%;
+  filter: brightness(1.07) drop-shadow(0 6px 5px rgb(0 0 0 / 0.3));
+}
+
+/* 岩石障碍：与蛇同语言的石材方块，颜色更灰更重。
+   世界坐标固定不动，屏幕位移完全由世界层平移承担；挂载时淡入（开关障碍的瞬间）。 */
+.snake-wall {
+  background: var(--snake-wall);
+  background-clip: padding-box;
+  border: 1.5px solid transparent;
+  border-radius: 18%;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.14),
+    inset 0 -3px 0 rgb(0 0 0 / 0.3),
+    0 2px 3px rgb(0 0 0 / 0.2);
+  animation: snake-fade-in 240ms ease-out;
+}
+@keyframes snake-fade-in {
+  from { opacity: 0; }
+}
+
+/* 食物：径向渐变球体 + 呼吸脉动，峰值带一圈同色微光。 */
+.snake-food {
+  background: radial-gradient(
+    circle at 34% 30%,
+    color-mix(in srgb, var(--snake-food), #ffffff 55%) 0 18%,
+    var(--snake-food) 62%
+  );
+  border-radius: 50%;
+  transform: scale(0.62);
+  filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.28));
+  /* 世界坐标固定，随世界层滚动；挂载时先淡入，再进入呼吸脉动。 */
+  animation:
+    snake-fade-in 240ms ease-out,
+    snake-food-pulse 1.6s ease-in-out infinite;
+}
+@keyframes snake-food-pulse {
+  0%, 100% { transform: scale(0.6); box-shadow: 0 0 0 0 transparent; }
+  50% { transform: scale(0.72); box-shadow: 0 0 6px 1px color-mix(in srgb, var(--snake-food) 40%, transparent); }
+}
+
+/* 道具（设计稿静态等价物；实现画在 canvas 上）：碎岩 = 金色菱形，游泳 = 蓝色水滴。 */
+.snake-item {
+  position: absolute;
+  left: calc(var(--x) * var(--snake-cell));
+  top: calc(var(--y) * var(--snake-cell));
+  width: var(--snake-cell);
+  height: var(--snake-cell);
+}
+.snake-item--smash::before {
+  content: "";
+  position: absolute;
+  inset: 20%;
+  background: var(--snake-smash);
+  transform: rotate(45deg);
+  box-shadow: inset 0 2px 2px rgb(255 255 255 / 0.4), 0 2px 3px rgb(0 0 0 / 0.25);
+}
+.snake-item--swim::before {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  background: var(--snake-swim);
+  clip-path: polygon(50% 0, 100% 55%, 88% 100%, 12% 100%, 0 55%);
+  box-shadow: 0 2px 3px rgb(0 0 0 / 0.25);
+}
+.snake-item--fly::before {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  background: var(--snake-fly);
+  clip-path: polygon(50% 0, 95% 82%, 5% 82%);
+  box-shadow: 0 2px 3px rgb(0 0 0 / 0.25);
+}
+
+/* 游泳生效中：棋盘四周泛蓝色光晕；入水时加深，像潜在水下。 */
+.snake-swim-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 46px 12px color-mix(in srgb, var(--snake-swim) 38%, transparent),
+    inset 0 0 12px 3px color-mix(in srgb, var(--snake-swim) 30%, transparent);
+  animation: snake-swim-glow 1.8s ease-in-out infinite;
+}
+.snake-swim-glow--deep {
+  box-shadow:
+    inset 0 0 80px 26px color-mix(in srgb, var(--snake-swim) 60%, transparent),
+    inset 0 0 16px 5px color-mix(in srgb, var(--snake-swim) 45%, transparent);
+}
+@keyframes snake-swim-glow {
+  50% { opacity: 0.65; }
+}
+
+/* 吃到道具的顶部横幅提示：淡入停留后淡出，元素由 JS 定时移除。 */
+.snake-notice {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 6px 14px;
+  background: var(--ui-elevated);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-lg);
+  font-size: var(--ui-text-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: snake-notice 2400ms ease forwards;
+}
+@keyframes snake-notice {
+  0% { opacity: 0; transform: translate(-50%, -8px); }
+  8% { opacity: 1; transform: translate(-50%, 0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 能力倒计时：棋盘底部居中的小胶囊，文字倒数 + 进度条平滑缩短。 */
+.snake-buffs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.snake-buff {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 76px;
+  padding: 5px 10px 7px;
+  background: color-mix(in srgb, var(--ui-elevated) 88%, transparent);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  font: 600 var(--ui-text-xs) / 1 var(--ui-mono);
+  text-align: center;
+}
+.snake-buff--smash { color: var(--snake-smash); }
+.snake-buff--swim { color: var(--snake-swim); }
+.snake-buff--fly { color: var(--snake-fly); }
+.snake-buff i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  transition-property: width;
+  transition-timing-function: linear;
+}
+
+/* 吃到食物时在原格飘出 +1。 */
+.snake-pop {
+  position: absolute;
+  left: calc(var(--x) * var(--snake-cell));
+  top: calc(var(--y) * var(--snake-cell));
+  width: var(--snake-cell);
+  height: var(--snake-cell);
+  display: grid;
+  place-items: center;
+  color: var(--snake-food);
+  font: 600 var(--ui-text-xs) / 1 var(--ui-mono);
+  pointer-events: none;
+  animation: snake-pop 560ms ease-out forwards;
+}
+@keyframes snake-pop {
+  to { transform: translateY(-150%); opacity: 0; }
+}
+
+/* 撞死：身体变淡、蛇头标红（终局状态色，配合文字状态一起出现）。 */
+.snake-board--crash .snake-seg { opacity: 0.55; }
+.snake-board--crash .snake-seg--head { background-color: var(--ui-danger); opacity: 1; }
+
+/* 状态遮罩：未开始 / 已暂停 / 游戏结束共用一个居中卡片（保持正对用户，不随棋盘倾斜）。 */
+.snake-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--ui-space-4);
+  background: color-mix(in srgb, var(--ui-bg) 80%, transparent);
+  border-radius: var(--ui-radius-md);
+  animation: ui-fade-in 160ms ease-out;
+}
+/* 结束遮罩延迟出现，先露出撞红与震动的反馈瞬间。 */
+.snake-overlay--over { animation: ui-fade-in 160ms ease-out 420ms backwards; }
+.snake-card {
+  max-width: 300px;
+  padding: var(--ui-space-5);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-elevated);
+  box-shadow: var(--ui-shadow-lg);
+  text-align: center;
+}
+.snake-card h2 { margin: 0 0 var(--ui-space-2); }
+.snake-card p { margin: var(--ui-space-1) 0 var(--ui-space-3); font-size: var(--ui-text-sm); }
+.snake-card .ui-actions { justify-content: center; }
+.snake-new-best { display: inline-flex; align-items: center; gap: 4px; color: var(--ui-accent); font-weight: 600; }
+
+.snake-hint { margin: var(--ui-space-3) 0 0; font-size: var(--ui-text-xs); color: var(--ui-muted); text-align: center; }
+.snake-hint kbd {
+  display: inline-block;
+  min-width: 14px;
+  margin: 0 1px;
+  padding: 0 4px;
+  border: 1px solid var(--ui-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--ui-elevated);
+  color: var(--ui-muted);
+  font: 500 10px / 1.7 var(--ui-mono);
+  text-align: center;
+  box-shadow: var(--ui-shadow-sm);
+}
+
+/* 设置分区：最高分说明文字。 */
+.snake-best-note { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-sm); }
+.snake-best-note strong { font-family: var(--ui-mono); }
+
+@media (prefers-reduced-motion: reduce) {
+  .snake-overlay, .snake-overlay--over { animation: none; }
+  .snake-seg { transition: none; }
+  .snake-wall, .snake-food, .snake-pop, .snake-board-wrap--crash { animation: none; }
+  .snake-pop { opacity: 0; }
+  .snake-swim-glow { animation: none; }
+  .snake-notice { animation: none; opacity: 1; }
+  .snake-buff i { transition: none; }
+}

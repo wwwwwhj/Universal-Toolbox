@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { Gamepad2, HardDrive, Keyboard, Network, type LucideIcon } from "lucide-react";
 import SnakePage from "../modules/snake/SnakePage";
+import SnakeSettings from "../modules/snake/SnakeSettings";
 import TypingPage from "../modules/typing/TypingPage";
 import TypingSettings from "../modules/typing/TypingSettings";
 import PortsPage from "../modules/ports/PortsPage";
@@ -22,7 +23,7 @@ export interface ToolboxModule {
 
 // 导航与路由共用静态清单，新增工具无需修改 Shell 或其他模块。
 export const modules: readonly ToolboxModule[] = [
-  { id: "snake", name: "Snake", route: "/snake", component: SnakePage, icon: Gamepad2, category: "休闲" },
+  { id: "snake", name: "贪吃蛇", route: "/snake", component: SnakePage, icon: Gamepad2, category: "休闲", settingsComponent: SnakeSettings },
   { id: "typing", name: "英文打字", route: "/typing", component: TypingPage, icon: Keyboard, category: "休闲", settingsComponent: TypingSettings },
   { id: "ports", name: "端口管理", route: "/ports", component: PortsPage, icon: Network, settingsComponent: PortsSettings },
   { id: "cache", name: "开发缓存管理", route: "/cache", component: CachePage, icon: HardDrive, settingsComponent: CacheSettings },

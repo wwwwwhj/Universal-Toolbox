@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>贪吃蛇 · 设计稿 · 万能工具箱</title>
+  <link rel="stylesheet" href="../src/App.css" />
+  <!-- 模块样式已落地为 src/modules/snake/snake.css，设计稿直接引用同一份文件。 -->
+  <link rel="stylesheet" href="../src/modules/snake/snake.css" />
+  <style>
+    /* ===== 以下为设计稿文档自身的标注样式，不属于模块 ===== */
+    .dd-caption { margin: 0 0 var(--ui-space-2) !important; font-family: var(--ui-mono); font-size: var(--ui-text-xs); letter-spacing: 0.03em; }
+    .dd-block { margin-top: var(--ui-space-6); padding-top: var(--ui-space-5); border-top: 1px solid var(--ui-border); }
+    .dd-states { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--ui-space-4); align-items: start; }
+    .dd-states .snake-card { padding: var(--ui-space-3); }
+    .dd-states .snake-card h2 { font-size: var(--ui-text-base); }
+    .dd-states .snake-card p { font-size: var(--ui-text-xs); }
+    .dd-states .ui-button { min-height: 30px; font-size: var(--ui-text-xs); }
+    .dd-notes { margin: var(--ui-space-3) 0 0; padding-left: var(--ui-space-5); color: var(--ui-muted); font-size: var(--ui-text-sm); line-height: 1.7; }
+    .dd-notes li { margin: var(--ui-space-1) 0; }
+    .dd-notes code { font-family: var(--ui-mono); font-size: 0.92em; }
+  </style>
+</head>
+<body>
+  <!-- 贪吃蛇模块静态设计稿：按钮不执行任何操作，分数与棋局均为虚构数据。 -->
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+        万能工具箱
+      </div>
+      <p class="sidebar-label">休闲</p>
+      <nav aria-label="休闲">
+        <a href="#/snake" aria-current="page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="6" x2="10" y1="11" y2="11"/><line x1="8" x2="8" y1="9" y2="13"/><line x1="15" x2="15.01" y1="12" y2="12"/><line x1="18" x2="18.01" y1="10" y2="10"/><path d="M17.32 5H6.68a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 17.32 5z"/></svg>Snake</a>
+        <a href="#/typing"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M6 12h.01"/><path d="M10 12h.01"/><path d="M14 12h.01"/><path d="M18 12h.01"/><path d="M7 16h10"/></svg>英文打字</a>
+      </nav>
+      <p class="sidebar-label">工具</p>
+      <nav aria-label="工具">
+        <a href="#/ports"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>端口管理</a>
+        <a href="#/cache"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>开发缓存管理</a>
+      </nav>
+      <div class="sidebar-footer">
+        <nav aria-label="设置">
+          <a href="#/settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>设置</a>
+        </nav>
+      </div>
+    </aside>
+    <main class="main-content">
+      <h1>贪吃蛇</h1>
+      <p>方向键或 WASD 控制，地图无限延伸、视角跟随蛇头；撞上岩石或咬到自己即结束。</p>
+
+      <div class="ui-toolbar">
+        <div class="ui-field">
+          <span id="snake-speed-label">速度</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="snake-speed-label">
+            <label><input type="radio" name="snake-speed" value="slow" />慢速</label>
+            <label><input type="radio" name="snake-speed" value="normal" checked />标准</label>
+            <label><input type="radio" name="snake-speed" value="fast" />快速</label>
+          </div>
+        </div>
+        <div class="ui-field">
+          <span id="snake-obstacles-label">障碍</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="snake-obstacles-label">
+            <label><input type="radio" name="snake-obstacles" value="on" checked />开启</label>
+            <label><input type="radio" name="snake-obstacles" value="off" />关闭</label>
+          </div>
+        </div>
+        <button class="ui-button snake-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>
+          暂停
+        </button>
+        <button class="ui-button snake-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          重新开始
+        </button>
+      </div>
+      <details class="ui-help"><summary>规则与操作</summary><p>地图无限延伸，相机始终跟随蛇头。吃到一个食物得 1 分并变长一格，场上始终有 3 个食物在附近刷新；咬到自己或撞上岩石即结束。岩簇缝隙可直接穿行，空格 / J / Shift 跳跃腾空 3 步可越过障碍与自身，落地格必须为空。P 或 Esc 暂停 / 继续，Enter 重新开始，窗口失焦自动暂停。</p></details>
+
+      <!-- 状态一：进行中 -->
+      <p class="dd-caption">状态 · 进行中（running）</p>
+      <div class="snake-surface">
+        <div class="snake-stats" role="status">
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path d="M10 2c1 .5 2 2 2 5"/></svg>得分 <strong>12</strong></span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>最高 <strong>48</strong></span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></svg>长度 <strong>9</strong></span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/></svg>跳跃 <strong>就绪</strong></span>
+          <span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/></svg>用时 <strong>00:42</strong></span>
+        </div>
+        <div class="snake-board-wrap snake-board-wrap--m">
+          <div class="snake-board" role="img" aria-label="棋盘：得分 12，长度 9，蛇头向右移动">
+            <i class="snake-ground snake-ground--sand" style="--x:2;--y:2"></i>
+            <i class="snake-ground snake-ground--sand" style="--x:3;--y:2"></i>
+            <i class="snake-ground snake-ground--sand" style="--x:4;--y:2"></i>
+            <i class="snake-ground snake-ground--sand" style="--x:2;--y:3"></i>
+            <i class="snake-ground snake-ground--sand" style="--x:3;--y:3"></i>
+            <i class="snake-ground snake-ground--water" style="--x:16;--y:17"></i>
+            <i class="snake-ground snake-ground--water" style="--x:17;--y:17"></i>
+            <i class="snake-ground snake-ground--water" style="--x:18;--y:17"></i>
+            <i class="snake-ground snake-ground--water" style="--x:19;--y:17"></i>
+            <i class="snake-ground snake-ground--water" style="--x:16;--y:18"></i>
+            <i class="snake-ground snake-ground--water" style="--x:17;--y:18"></i>
+            <i class="snake-ground snake-ground--water" style="--x:18;--y:18"></i>
+            <i class="snake-ground snake-ground--water" style="--x:17;--y:19"></i>
+            <i class="snake-grid"></i>
+            <i class="snake-wall" style="--x:3;--y:4"></i>
+            <i class="snake-wall" style="--x:4;--y:4"></i>
+            <i class="snake-wall" style="--x:3;--y:5"></i>
+            <i class="snake-wall" style="--x:16;--y:3"></i>
+            <i class="snake-wall" style="--x:17;--y:3"></i>
+            <i class="snake-wall" style="--x:16;--y:4"></i>
+            <i class="snake-wall" style="--x:10;--y:15"></i>
+            <i class="snake-wall" style="--x:11;--y:15"></i>
+            <i class="snake-wall" style="--x:10;--y:16"></i>
+            <i class="snake-wall" style="--x:15;--y:11"></i>
+            <i class="snake-wall" style="--x:16;--y:11"></i>
+            <i class="snake-seg snake-seg--tail" style="--x:4;--y:12"></i>
+            <i class="snake-seg" style="--x:5;--y:12"></i>
+            <i class="snake-seg" style="--x:6;--y:12"></i>
+            <i class="snake-seg" style="--x:6;--y:11"></i>
+            <i class="snake-seg" style="--x:6;--y:10"></i>
+            <i class="snake-seg" style="--x:7;--y:10"></i>
+            <i class="snake-seg" style="--x:8;--y:10"></i>
+            <i class="snake-seg" style="--x:9;--y:10"></i>
+            <i class="snake-seg snake-seg--head" data-dir="right" style="--x:10;--y:10"></i>
+            <i class="snake-food" style="--x:15;--y:4"></i>
+            <i class="snake-food" style="--x:4;--y:16"></i>
+            <i class="snake-food" style="--x:18;--y:14"></i>
+            <i class="snake-item snake-item--smash" style="--x:6;--y:7"></i>
+            <i class="snake-item snake-item--swim" style="--x:15;--y:17"></i>
+            <i class="snake-item snake-item--fly" style="--x:7;--y:14"></i>
+            <i class="snake-pop" style="--x:12;--y:9">+1</i>
+          </div>
+        </div>
+        <p class="snake-hint"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> / <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · <kbd>空格</kbd> 跳跃 · <kbd>P</kbd> 暂停 · <kbd>Enter</kbd> 重新开始</p>
+      </div>
+
+      <!-- 其余棋盘状态 -->
+      <section class="dd-block" aria-label="棋盘状态变体">
+        <h2>棋盘状态</h2>
+        <p>同一棋盘区域按状态叠加居中卡片，正文始终提供文字状态，不依赖颜色区分。</p>
+        <div class="dd-states">
+          <div>
+            <p class="dd-caption">未开始（ready）</p>
+            <div class="snake-board-wrap snake-board-wrap--s">
+              <div class="snake-board" role="img" aria-label="棋盘：尚未开始">
+                <i class="snake-ground snake-ground--sand" style="--x:15;--y:3"></i>
+                <i class="snake-ground snake-ground--sand" style="--x:16;--y:3"></i>
+                <i class="snake-ground snake-ground--water" style="--x:2;--y:16"></i>
+                <i class="snake-ground snake-ground--water" style="--x:3;--y:16"></i>
+                <i class="snake-ground snake-ground--water" style="--x:2;--y:17"></i>
+                <i class="snake-grid"></i>
+                <i class="snake-wall" style="--x:4;--y:5"></i>
+                <i class="snake-wall" style="--x:5;--y:5"></i>
+                <i class="snake-wall" style="--x:4;--y:6"></i>
+                <i class="snake-wall" style="--x:13;--y:14"></i>
+                <i class="snake-wall" style="--x:14;--y:14"></i>
+                <i class="snake-seg snake-seg--tail" style="--x:8;--y:10"></i>
+                <i class="snake-seg" style="--x:9;--y:10"></i>
+                <i class="snake-seg snake-seg--head" data-dir="right" style="--x:10;--y:10"></i>
+                <i class="snake-food" style="--x:15;--y:6"></i>
+                <i class="snake-food" style="--x:3;--y:16"></i>
+                <i class="snake-food" style="--x:17;--y:17"></i>
+              </div>
+              <div class="snake-overlay">
+                <div class="snake-card">
+                  <h2>准备开始</h2>
+                  <p>地图无限延伸，吃掉食物变长；空格腾空越过岩石。</p>
+                  <div class="ui-actions">
+                    <button class="ui-button ui-button--primary" type="button">开始游戏（空格）</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p class="dd-caption">已暂停（paused）</p>
+            <div class="snake-board-wrap snake-board-wrap--s">
+              <div class="snake-board" role="img" aria-label="棋盘：已暂停">
+                <i class="snake-grid"></i>
+                <i class="snake-wall" style="--x:16;--y:3"></i>
+                <i class="snake-wall" style="--x:17;--y:3"></i>
+                <i class="snake-wall" style="--x:10;--y:15"></i>
+                <i class="snake-wall" style="--x:11;--y:15"></i>
+                <i class="snake-seg snake-seg--tail" style="--x:4;--y:12"></i>
+                <i class="snake-seg" style="--x:5;--y:12"></i>
+                <i class="snake-seg" style="--x:6;--y:12"></i>
+                <i class="snake-seg" style="--x:6;--y:11"></i>
+                <i class="snake-seg" style="--x:6;--y:10"></i>
+                <i class="snake-seg" style="--x:7;--y:10"></i>
+                <i class="snake-seg" style="--x:8;--y:10"></i>
+                <i class="snake-seg" style="--x:9;--y:10"></i>
+                <i class="snake-seg snake-seg--head" data-dir="right" style="--x:10;--y:10"></i>
+                <i class="snake-food" style="--x:15;--y:4"></i>
+                <i class="snake-food" style="--x:4;--y:16"></i>
+                <i class="snake-food" style="--x:18;--y:14"></i>
+              </div>
+              <div class="snake-overlay">
+                <div class="snake-card">
+                  <h2>已暂停</h2>
+                  <p>局面已冻结，继续后从当前位置恢复。</p>
+                  <div class="ui-actions">
+                    <button class="ui-button ui-button--primary" type="button">继续（空格）</button>
+                    <button class="ui-button" type="button">重新开始</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p class="dd-caption">游戏结束（over）</p>
+            <div class="snake-board-wrap snake-board-wrap--s">
+              <div class="snake-board snake-board--crash" role="img" aria-label="棋盘：游戏结束，本局 32 分">
+                <i class="snake-grid"></i>
+                <i class="snake-wall" style="--x:10;--y:10"></i>
+                <i class="snake-wall" style="--x:11;--y:9"></i>
+                <i class="snake-wall" style="--x:11;--y:11"></i>
+                <i class="snake-seg snake-seg--tail" style="--x:7;--y:10"></i>
+                <i class="snake-seg" style="--x:8;--y:10"></i>
+                <i class="snake-seg" style="--x:9;--y:10"></i>
+                <i class="snake-seg snake-seg--head" data-dir="right" style="--x:10;--y:10"></i>
+                <i class="snake-food" style="--x:6;--y:4"></i>
+                <i class="snake-food" style="--x:16;--y:15"></i>
+              </div>
+              <div class="snake-overlay snake-overlay--over">
+                <div class="snake-card">
+                  <h2>游戏结束</h2>
+                  <p>本局 <strong>32</strong> 分 · <span class="snake-new-best">新纪录！</span></p>
+                  <div class="ui-actions">
+                    <button class="ui-button ui-button--primary" type="button">再来一局（Enter）</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 设置分区 -->
+      <section class="dd-block" aria-label="设置分区设计">
+        <h2>设置分区</h2>
+        <p>模块向设置页注册 <code>settingsComponent</code>，与页面工具栏共享同一份 <code>createModuleSettings</code> 状态。</p>
+        <div class="ui-field">
+          <span id="dd-speed-label">默认速度</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="dd-speed-label">
+            <label><input type="radio" name="dd-speed" value="slow" />慢速</label>
+            <label><input type="radio" name="dd-speed" value="normal" checked />标准</label>
+            <label><input type="radio" name="dd-speed" value="fast" />快速</label>
+          </div>
+        </div>
+        <div class="ui-field" style="margin-top: var(--ui-space-4);">
+          <span id="dd-obstacles-label">默认障碍</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="dd-obstacles-label">
+            <label><input type="radio" name="dd-obstacles" value="on" checked />开启</label>
+            <label><input type="radio" name="dd-obstacles" value="off" />关闭</label>
+          </div>
+        </div>
+        <div class="ui-field" style="margin-top: var(--ui-space-4);">
+          <span id="dd-view-label">默认视野</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="dd-view-label">
+            <label><input type="radio" name="dd-view" value="small" />近</label>
+            <label><input type="radio" name="dd-view" value="normal" checked />标准</label>
+            <label><input type="radio" name="dd-view" value="large" />远</label>
+          </div>
+        </div>
+        <div class="ui-field" style="margin-top: var(--ui-space-4);">
+          <span id="dd-size-label">默认尺寸</span>
+          <div class="ui-segmented" role="radiogroup" aria-labelledby="dd-size-label">
+            <label><input type="radio" name="dd-size" value="auto" checked />自动</label>
+            <label><input type="radio" name="dd-size" value="s" />小</label>
+            <label><input type="radio" name="dd-size" value="m" />中</label>
+            <label><input type="radio" name="dd-size" value="l" />大</label>
+          </div>
+        </div>
+        <div class="ui-field" style="margin-top: var(--ui-space-4);">
+          <label style="display:inline-flex;align-items:center;gap:var(--ui-space-2);font-size:var(--ui-text-sm);">
+            <input type="checkbox" checked />
+            显示棋盘网格
+          </label>
+        </div>
+        <div class="ui-field" style="margin-top: var(--ui-space-4);">
+          <span>最高分记录</span>
+          <p style="margin:0;font-size:var(--ui-text-sm);">当前最高 <strong style="font-family:var(--ui-mono);">48</strong> 分，保存在本机存储中。</p>
+        </div>
+        <div class="ui-actions" style="margin-top: var(--ui-space-4);">
+          <button class="ui-button" type="button">清除最高分</button>
+          <button class="ui-button" type="button">恢复默认</button>
+        </div>
+      </section>
+
+      <!-- 设计说明 -->
+      <section class="dd-block" aria-label="设计说明">
+        <h2>设计说明</h2>
+        <ul class="dd-notes">
+          <li><strong>状态机</strong>：<code>ready → running ⇄ paused → over</code>；进入页面为 ready， overlays 提供各状态唯一主按钮（开始 / 继续 / 再来一局）。</li>
+          <li><strong>键位</strong>：方向键 / WASD 转向，空格 / J / Shift 跳跃（空格是主操作键：未开始 = 开始、已暂停 = 继续），P / Esc 暂停或继续，Enter 在结束后重开；监听挂在 window 上，弹窗打开或焦点在输入控件时不拦截；点击按钮后主动 blur，避免空格误触按钮（同打字页）。</li>
+          <li><strong>伪 3D</strong>：棋盘 <code>perspective</code> + <code>rotateX(16deg)</code> 倾斜，加深下边框模拟板厚，大面积柔和投影制造悬浮；蛇身与障碍用上缘受光 / 下缘背光的双 inset 阴影 + 落地投影形成积木方块；遮罩层是棋盘平级兄弟节点，保持正对用户。</li>
+          <li><strong>无限地图</strong>：世界无边界，21×21 棋盘是跟随蛇头的相机窗口（类似土豆兄弟）；岩石按世界坐标哈希确定性生成，同一位置永远是同一障碍，无需存储；岩簇间缝隙天然可穿行，开局区域保证留空。</li>
+          <li><strong>地形</strong>：值噪声（粗网格哈希 + 双线性平滑）把世界分成草地、沙漠、海洋，边界是有机的不规则形状；草地是棋盘底色，沙漠是装饰地面，海洋是危险地形——走进去和撞岩石一样结束，跳跃可越过窄水面；食物只刷在可站立地面，出生点附近固定为草地安全区。</li>
+          <li><strong>食物</strong>：常驻 3 个，刷新在蛇头周围 6–15 格的环形带内（避开岩石与蛇身），吃掉补一个，距蛇头超过 22 格的自动丢弃。</li>
+          <li><strong>跳跃</strong>：腾空 3 个 tick，空中可越过障碍与自身但吃不到食物和道具；落地格必须为空，否则失败；落地后冷却 5 tick，统计行实时显示 就绪 / 空中 / 冷却。腾空表现：整条蛇明显上抬、蛇身泛白光、蛇头两侧扇动白色小翅膀，原位置留下椭圆投影，起跳瞬间脚下爆出一圈扬尘。</li>
+          <li><strong>道具</strong>：每种至多 1 个，在对应环境附近必定刷出（距环境 3–8 格的可站立地面；附近没有合适环境就不刷，吃掉或跑远后自动补刷）。金色菱形「碎岩」对应岩石，吃下后 5 秒内撞上岩石会将其永久撞碎（本局不再出现），碎裂时有碎片飞散和画面微震；蓝色水滴「游泳」对应水面，吃下后 10 秒内需水面也安全，生效期间棋盘四周泛蓝色光晕、入水时加深；紫色三角「飞行宝石」刷在水面或岩石附近，吃下后 5 秒持续飞行（比跳跃抬得更高、翅膀扇动更快、头后拖速度线）且移动加速约 1.5 倍，飞行中无视一切地形与自身、可照常拾取，效果结束时落点必须安全。跳跃腾空时吃不到食物和道具。吃到道具弹出顶部横幅提示，棋盘底部显示能力倒计时进度条，蛇身同时带对应颜色描边。</li>
+          <li><strong>统计</strong>：<code>.snake-stats</code> 用 <code>role="status"</code> 播报得分、最高、长度、跳跃状态、用时，数字等宽；棋盘 <code>role="img"</code> + <code>aria-label</code> 给出文字摘要。</li>
+          <li><strong>视野</strong>：窗口边长可配置（近 15 / 标准 21 / 远 27 格，取奇数保证蛇头居中）；格子尺寸 = 棋盘宽 ÷ 视野格数，视野越大看到的地图越广；食物刷新环随视野缩放。工具栏与设置分区共享该配置。</li>
+          <li><strong>尺寸</strong>：棋盘像素边长可配置（自动 / 小 400 / 中 560 / 大 720）；「自动」取列宽与「窗口高度 - 界面开销」的较小值，大屏幕自动铺满可用空间且不超出窗口；格子随棋盘等比缩放，与视野是两组独立调节。</li>
+          <li><strong>持久化</strong>：速度、障碍、视野、网格与最高分经 <code>createModuleSettings</code> 存 localStorage；写入失败沿用 <code>usePersistError</code> 的 <code>ui-feedback--error</code> 提示。</li>
+          <li><strong>配色</strong>：蛇身、食物、岩石与地形（草地 / 沙漠 / 海洋）为游戏图形用色，模块内以 <code>light-dark()</code> 局部定义；工具栏、状态卡与反馈仍全部使用公共 token，不新增主题。</li>
+          <li><strong>渲染</strong>：实现为单张 <code>&lt;canvas&gt;</code> + <code>requestAnimationFrame</code>（<code>render.ts</code>）：地形、网格、岩石、食物、蛇身、飘分逐帧绘制，游戏区 DOM 只剩状态遮罩，帧开销与元素数量无关；棋盘像素边长经 <code>ResizeObserver</code> 供给渲染循环，buffer 按 <code>devicePixelRatio</code> 分配，主题色从 CSS 变量解析。设计稿用 <code>.snake-ground--*</code> / <code>.snake-grid</code> / <code>.snake-seg</code> 等 DOM 静态等价物表达同一视觉。</li>
+          <li><strong>动效</strong>：蛇身每帧在最近两个 tick 状态之间做亚格插值，是真·平滑爬行而非格间滑动；蛇头眼睛随方向偏置、食物呼吸脉动、吃食 <code>+1</code> 飘分、撞死时棋盘震动且蛇头标红；<code>prefers-reduced-motion</code> 下 DOM 侧动效全部回退。</li>
+          <li><strong>相机</strong>：相机是画布内的小数坐标，按指数平滑（时间常数 ~1.8 tick）追踪蛇头——蛇会在视野里领先一小段再被平滑追上，而不是钉死在中心；重开一局时相机直接归位，不会整屏飞越。</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
