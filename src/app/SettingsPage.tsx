@@ -1,8 +1,9 @@
 import { useState, type KeyboardEvent } from "react";
-import { Monitor, Moon, SlidersHorizontal, Sun } from "lucide-react";
+import { Info, Monitor, Moon, SlidersHorizontal, Sun } from "lucide-react";
 import { defaultPreferences, type Preferences } from "./preferences";
 import { applyModuleOrder } from "./modules";
 import { SegmentedField } from "../shared/SegmentedField";
+import AboutPanel from "./AboutPanel";
 
 interface SettingsPageProps {
   preferences: Preferences;
@@ -17,6 +18,7 @@ export default function SettingsPage({ preferences, onChange }: SettingsPageProp
   const tabs = [
     { id: "general", name: "通用", icon: SlidersHorizontal },
     ...settingsModules.map((module) => ({ id: module.id, name: module.name, icon: module.icon })),
+    { id: "about", name: "关于", icon: Info },
   ];
   const [tab, setTab] = useState("general");
   const activeTab = tabs.some((item) => item.id === tab) ? tab : tabs[0].id;
@@ -158,6 +160,11 @@ export default function SettingsPage({ preferences, onChange }: SettingsPageProp
                   恢复默认
                 </button>
               </div>
+            </>
+          ) : activeTab === "about" ? (
+            <>
+              <h2>关于</h2>
+              <AboutPanel />
             </>
           ) : (
             activeModule && ActiveSettings && (

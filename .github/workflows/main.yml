@@ -9,7 +9,31 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 手动触发也必须从版本 tag 运行，并校验 tag 与 tauri.conf.json 版本一致，
+  # 防止在默认分支上误以分支名创建 Release。
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+
+      - name: check tag matches app version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::必须从版本 tag 运行（workflow_dispatch 请在 Use workflow from 选择 v* tag）"
+            exit 1
+          fi
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$REF_NAME" != "v$VERSION" ]; then
+            echo "::error::tag $REF_NAME 与 tauri.conf.json 版本 $VERSION 不一致"
+            exit 1
+          fi
+
   publish-tauri:
+    needs: validate
     permissions:
       contents: write
 
@@ -92,6 +116,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+          # 更新包签名私钥（updater 必需），在仓库 Settings → Secrets 配置
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
           # macOS 暂时没有正式 Apple Developer 签名时使用
           APPLE_SIGNING_IDENTITY: '-'
 
@@ -112,7 +140,34 @@ jobs:
             - macOS Intel
             - Linux
 
-          releaseDraft: false
+          # 先建草稿：四个平台独立构建，全部完成前不对外公开，
+          # 避免先完成平台的 Release 里清单或安装包缺失。
+          releaseDraft: true
           prerelease: false
 
           args: ${{ matrix.args }}
+
+  # 全部平台构建成功后校验更新清单再发布；任一平台失败则保持草稿。
+  publish-release:
+    needs: publish-tauri
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: verify updater manifest and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" -p latest.json -O latest.json --clobber
+          node -e "
+            const m = require('./latest.json');
+            const want = ['windows-x86_64', 'darwin-aarch64', 'darwin-x86_64', 'linux-x86_64'];
+            const missing = want.filter((p) => !m.platforms || !m.platforms[p]);
+            if (missing.length) {
+              console.error('latest.json 缺少平台: ' + missing.join(', '));
+              process.exit(1);
+            }
+          "
+          gh release edit "$TAG" --draft=false
